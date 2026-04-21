@@ -2,7 +2,7 @@
 
 > Automatización de compra de paquetes en **Mi Claro Guatemala** con interfaz gráfica moderna.
 
-[![Version](https://img.shields.io/badge/version-0.2.0-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
+[![Version](https://img.shields.io/badge/version-0.3.1-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://python.org)
 [![Build](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml/badge.svg)](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml)
@@ -73,11 +73,14 @@ O hacer doble clic en `ComprasClaroGT.exe` si ya compilaste.
 | **SlowMo** | Retardo en ms entre acciones (0 = máxima velocidad) |
 | **Carrusel N / Clics Next** | Cuántas veces avanzar en ese carrusel |
 | **Carrusel N / Posición** | Índice del paquete a comprar (nth-child) |
+| **Paquete a comprar (slide)** | Selector explícito del paquete objetivo (prioridad en el flujo de compra) |
+| **Texto del paquete** | Búsqueda por palabra clave visible en el sitio (ej. 10GB, Ilimitado, Q50) |
 | **Método de pago** | Saldo o Tarjeta |
 | **Facturación / Nombre** | Nombre que se enviará en la factura |
 | **Facturación / NIT** | NIT o CF requerido por el formulario |
 | **Facturación / Dirección** | Dirección de facturación |
 | **Facturación / Correo** | Correo al que se enviará la factura |
+| **Facturación / CVV** | CVV de la tarjeta guardada cuando el sitio lo solicite |
 
 ---
 
@@ -136,6 +139,18 @@ La versión debe coincidir en: `version.py` → GUI → README → git tag → G
 ---
 
 ## Changelog
+
+### V0.3.1 — 2026-04-21
+- **fix:** La detención desde GUI ahora cierra Chromium de forma inmediata mediante un watchdog de parada, evitando esperas largas en timeouts de Playwright
+- **fix:** Los cierres provocados por detener el proceso se manejan como parada controlada (sin falso error inesperado)
+- **fix:** Se robusteció el cierre final de `page/context/browser` para evitar fallos por recursos ya cerrados
+- **feat:** Se documenta la selección de paquete por **texto** desde la GUI para elegir más fácilmente según lo que muestra el sitio
+
+### V0.3.0 — 2026-04-21
+- **fix:** Detección de formulario de facturación fortalecida con búsqueda en página principal e iframes, incluyendo esperas escalonadas para carga tardía
+- **feat:** Nuevo soporte de **CVV** en GUI + automatización; si el sitio solicita CVV, el bot lo completa y confirma el paso de pago
+- **feat:** Nuevo campo explícito **Paquete a comprar (slide)** en GUI con efecto directo en la selección del paquete objetivo
+- **fix:** Workflow de GitHub Actions ajustado para compilar con ruta absoluta de ícono/datos y evitar fallo por búsqueda en `build_tmp`
 
 ### V0.2.0 — 2026-04-21
 - **feat:** Nueva pestaña de **Facturación** en la GUI para parametrizar nombre, NIT, dirección y correo de factura

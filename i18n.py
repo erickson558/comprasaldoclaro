@@ -41,6 +41,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "carousel3_title":      {"es": "Carrusel 3 – Paquetes Tarjeta",     "en": "Carousel 3 – Card Packages"},
     "carousel_next_clicks": {"es": "Clics en Siguiente",                "en": "Next button clicks"},
     "carousel_slide":       {"es": "Posición del paquete",              "en": "Package position (slide)"},
+    "label_target_package_slide": {"es": "Paquete a comprar (slide)",   "en": "Package to buy (slide)"},
+    "label_target_package_keyword": {"es": "Texto del paquete",         "en": "Package text keyword"},
+    "help_target_package_keyword": {"es": "Ejemplo: 10GB, Ilimitado, Q50. Si coincide, se prioriza sobre el slide.", "en": "Example: 10GB, Unlimited, Q50. If matched, it takes priority over slide."},
 
     # Método de pago
     "label_payment":   {"es": "Método de pago",  "en": "Payment method"},
@@ -54,6 +57,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "label_billing_nit":    {"es": "NIT",               "en": "Tax ID"},
     "label_billing_address": {"es": "Dirección de facturación", "en": "Billing address"},
     "label_billing_email":  {"es": "Correo para factura", "en": "Invoice email"},
+    "label_billing_cvv":    {"es": "CVV de tarjeta", "en": "Card CVV"},
 
     # Opciones generales
     "chk_auto_start":    {"es": "Auto iniciar al abrir la app", "en": "Auto-start when app opens"},

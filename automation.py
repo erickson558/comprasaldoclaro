@@ -11,7 +11,7 @@ import logging
 import threading
 from typing import Callable, Optional
 
-from playwright.async_api import async_playwright, Page, BrowserContext, Locator
+from playwright.async_api import async_playwright, Page, BrowserContext, Locator, Frame
 
 logger = logging.getLogger("ComprasClaroApp")
 
@@ -218,6 +218,206 @@ async def _fill_first_visible(page: Page, selectors: list[str], value: str, time
     return False
 
 
+async def _find_visible_in_frames(page: Page, selectors: list[str], timeout_ms: int = 6000) -> Optional[tuple[Frame, str]]:
+    """
+    Busca un selector visible en cualquier frame (incluyendo main frame).
+    Devuelve (frame, selector) cuando encuentra coincidencia.
+    """
+    elapsed = 0
+    step = 300
+
+    while elapsed < timeout_ms:
+        for frame in page.frames:
+            for selector in selectors:
+                try:
+                    await frame.wait_for_selector(selector, state="visible", timeout=step)
+                    return frame, selector
+                except Exception:
+                    continue
+        elapsed += step
+    return None
+
+
+async def _fill_first_visible_in_frames(page: Page, selectors: list[str], value: str, timeout_ms: int = 8000) -> bool:
+    """
+    Rellena un input visible localizado en cualquier frame.
+    """
+    found = await _find_visible_in_frames(page, selectors, timeout_ms=timeout_ms)
+    if not found:
+        return False
+
+    frame, selector = found
+    await frame.locator(selector).first.fill(value)
+    logger.debug("Campo completado en frame con selector %s", selector)
+    return True
+
+
+async def _click_first_visible_in_frames(page: Page, selectors: list[str], timeout_ms: int = 8000) -> bool:
+    """
+    Hace click en el primer botón/elemento visible encontrado en cualquier frame.
+    """
+    found = await _find_visible_in_frames(page, selectors, timeout_ms=timeout_ms)
+    if not found:
+        return False
+
+    frame, selector = found
+    await frame.locator(selector).first.click()
+    logger.debug("Click ejecutado en frame con selector %s", selector)
+    return True
+
+
+async def _safe_close_page(page: Optional[Page]) -> None:
+    """Cierra la página ignorando errores de recursos ya cerrados."""
+    if not page:
+        return
+    try:
+        await page.close()
+    except Exception:
+        pass
+
+
+async def _safe_close_context(context: Optional[BrowserContext]) -> None:
+    """Cierra el contexto ignorando errores de recursos ya cerrados."""
+    if not context:
+        return
+    try:
+        await context.close()
+    except Exception:
+        pass
+
+
+async def _safe_close_browser(browser) -> None:
+    """Cierra el navegador ignorando errores de recursos ya cerrados."""
+    if not browser:
+        return
+    try:
+        await browser.close()
+    except Exception:
+        pass
+
+
+async def _stop_watchdog(
+    stop_event: Optional[threading.Event],
+    page: Optional[Page],
+    context: Optional[BrowserContext],
+    browser,
+    notify: Callable[[str], None],
+) -> None:
+    """
+    Vigila la señal de parada y fuerza cierre de Playwright al detectarla.
+    Esto evita que la automatización quede esperando timeouts largos.
+    """
+    if not stop_event:
+        return
+
+    while not stop_event.is_set():
+        await asyncio.sleep(0.2)
+
+    notify("Detención solicitada: cerrando Chromium de inmediato...")
+    await _safe_close_page(page)
+    await _safe_close_context(context)
+    await _safe_close_browser(browser)
+
+
+async def _handle_random_survey(page: Page, notify: Callable[[str], None]) -> None:
+    """
+    Maneja encuesta aleatoria de Mi Claro (Qualtrics): marcar 10, Siguiente y cerrar.
+    No debe romper el flujo si la encuesta no aparece.
+    """
+    survey_markers = [
+        "text=¿Recomendarías el portal Mi Claro",
+        "text=Basándote en la gestión",
+        "text=Con tecnología de Qualtrics",
+    ]
+
+    found = await _find_visible_in_frames(page, survey_markers, timeout_ms=2000)
+    if not found:
+        return
+
+    frame, _ = found
+    notify("Encuesta aleatoria detectada; resolviendo automáticamente...")
+
+    try:
+        # Click exacto sobre el valor 10 de recomendación.
+        score_clicked = await frame.evaluate(
+            """() => {
+                const candidates = Array.from(document.querySelectorAll('button, [role="button"], div, a'));
+                const target = candidates.find(el => (el.textContent || '').trim() === '10');
+                if (!target) return false;
+                target.click();
+                return true;
+            }"""
+        )
+        logger.debug("Encuesta: click en score 10 = %s", score_clicked)
+    except Exception as exc:
+        logger.debug("No se pudo marcar score 10 en encuesta: %s", exc)
+
+    await _click_first_visible_in_frames(
+        page,
+        [
+            "button:has-text('Siguiente')",
+            "input[value='Siguiente']",
+            "button:has-text('Next')",
+            "input[value='Next']",
+        ],
+        timeout_ms=2500,
+    )
+
+    closed = await _click_first_visible_in_frames(
+        page,
+        [
+            "button[aria-label='Close']",
+            "button[title='Close']",
+            ".close",
+            ".QSIWebResponsiveDialog button[class*='close']",
+            ".QSIWebResponsiveDialog .close-btn",
+            "text=×",
+        ],
+        timeout_ms=2500,
+    )
+    if not closed:
+        try:
+            await page.keyboard.press("Escape")
+        except Exception:
+            pass
+
+
+async def _buy_package_by_keyword(page: Page, keyword: str) -> bool:
+    """
+    Intenta comprar paquete buscando una palabra clave visible en la tarjeta.
+    Si encuentra la tarjeta, hace click en su botón de compra.
+    """
+    normalized = keyword.strip().lower()
+    if not normalized:
+        return False
+
+    cards = page.locator(".contBoxPaquetes .slick-slide")
+    count = await cards.count()
+    logger.debug("Búsqueda por keyword '%s' en %d tarjeta(s) del carrusel.", normalized, count)
+
+    for idx in range(count):
+        card = cards.nth(idx)
+        try:
+            text = (await card.inner_text(timeout=500) or "").lower()
+            if normalized not in text:
+                continue
+
+            buy_locator = card.locator(
+                "button:has-text('Comprar'), a:has-text('Comprar'), .btn:has-text('Comprar'), .btn:nth-child(1)"
+            ).first
+            if await buy_locator.count() == 0:
+                continue
+
+            logger.debug("Tarjeta coincidente por keyword en índice %d: %s", idx, keyword)
+            await _click_locator_and_navigate(page, buy_locator, timeout=20000)
+            return True
+        except Exception as exc:
+            logger.debug("Error evaluando tarjeta %d para keyword '%s': %s", idx, keyword, exc)
+            continue
+
+    return False
+
+
 async def _complete_billing_form(page: Page, config: dict, notify: Callable[[str], None]) -> None:
     """
     Completa el formulario de facturación final si la compra redirige a esa vista.
@@ -229,8 +429,17 @@ async def _complete_billing_form(page: Page, config: dict, notify: Callable[[str
     billing_address = str(config.get("billing_address", "")).strip()
     billing_email = str(config.get("billing_email", "")).strip() or str(config.get("email", "")).strip()
 
-    form_visible = await _is_selector_visible(page, "input[placeholder*='nombre'], input[placeholder*='NIT'], input[placeholder*='correo']", timeout=5000)
-    if not form_visible:
+    billing_markers = [
+        "input[placeholder*='nombre' i]",
+        "input[placeholder*='nit' i]",
+        "input[placeholder*='correo' i]",
+        "text=Nombre en factura",
+        "text=Dirección de facturación",
+    ]
+
+    # Esperar de forma robusta porque el formulario puede cargar tarde o en un frame.
+    form_found = await _find_visible_in_frames(page, billing_markers, timeout_ms=18000)
+    if not form_found:
         logger.debug("Formulario de facturación no detectado; continuando flujo normal.")
         return
 
@@ -250,28 +459,33 @@ async def _complete_billing_form(page: Page, config: dict, notify: Callable[[str
     invoice_option_selectors = [
         "label:has-text('Deseo recibir mi factura por correo electrónico')",
         "input[type='radio'][value='correo']",
+        "input[type='radio']",
     ]
-    await _try_selectors(page, invoice_option_selectors, timeout=1500)
+    await _click_first_visible_in_frames(page, invoice_option_selectors, timeout_ms=2000)
 
-    filled_name = await _fill_first_visible(
+    filled_name = await _fill_first_visible_in_frames(
         page,
-        ["input[placeholder*='nombre']", "input[name*='nombre']", "input[id*='nombre']"],
+        ["input[placeholder*='nombre' i]", "input[name*='nombre' i]", "input[id*='nombre' i]"],
         billing_name,
+        timeout_ms=8000,
     )
-    filled_nit = await _fill_first_visible(
+    filled_nit = await _fill_first_visible_in_frames(
         page,
-        ["input[placeholder*='NIT']", "input[placeholder*='nit']", "input[name*='nit']", "input[id*='nit']"],
+        ["input[placeholder*='NIT' i]", "input[name*='nit' i]", "input[id*='nit' i]"],
         billing_nit,
+        timeout_ms=8000,
     )
-    filled_address = await _fill_first_visible(
+    filled_address = await _fill_first_visible_in_frames(
         page,
-        ["input[placeholder*='dirección']", "input[placeholder*='direccion']", "input[name*='direccion']", "input[id*='direccion']"],
+        ["input[placeholder*='dirección' i]", "input[placeholder*='direccion' i]", "input[name*='direccion' i]", "input[id*='direccion' i]"],
         billing_address or "Ciudad de Guatemala",
+        timeout_ms=8000,
     )
-    filled_email = await _fill_first_visible(
+    filled_email = await _fill_first_visible_in_frames(
         page,
-        ["input[placeholder*='correo']", "input[name*='correo']", "input[id*='correo']"],
+        ["input[placeholder*='correo' i]", "input[name*='correo' i]", "input[id*='correo' i]"],
         billing_email,
+        timeout_ms=8000,
     )
 
     if not (filled_name and filled_nit):
@@ -293,11 +507,60 @@ async def _complete_billing_form(page: Page, config: dict, notify: Callable[[str
         "button:has-text('Continuar')",
         "input[value='Continuar']",
         ".btn:has-text('Continuar')",
+        "button:has-text('Pagar')",
+        ".btn:has-text('Pagar')",
     ]
     notify("Enviando formulario de facturación...")
-    clicked_continue = await _try_selectors(page, continue_selectors, timeout=8000)
+    clicked_continue = await _click_first_visible_in_frames(page, continue_selectors, timeout_ms=12000)
     if not clicked_continue:
         raise RuntimeError("No se encontró el botón 'Continuar' del formulario de facturación.")
+
+    await _safe_wait_networkidle(page)
+
+
+async def _complete_cvv_step(page: Page, config: dict, notify: Callable[[str], None]) -> None:
+    """
+    Completa el CVV cuando el sitio lo solicita para confirmar pago con tarjeta guardada.
+    Puede aparecer después de facturación y en algunos casos dentro de un iframe.
+    """
+    cvv = str(config.get("billing_cvv", "")).strip()
+
+    cvv_selectors = [
+        "input[placeholder*='CVV' i]",
+        "input[name*='cvv' i]",
+        "input[id*='cvv' i]",
+        "input[autocomplete='cc-csc']",
+        "input[maxlength='3'][type='password']",
+        "input[maxlength='4'][type='password']",
+        "input[maxlength='3'][type='tel']",
+        "input[maxlength='4'][type='tel']",
+    ]
+
+    cvv_found = await _find_visible_in_frames(page, cvv_selectors, timeout_ms=20000)
+    if not cvv_found:
+        logger.debug("Paso CVV no detectado; continuando flujo normal.")
+        return
+
+    if not cvv:
+        raise RuntimeError("Se detectó solicitud de CVV, pero el campo CVV está vacío en la GUI.")
+
+    notify("Paso CVV detectado; completando seguridad de tarjeta...")
+    filled_cvv = await _fill_first_visible_in_frames(page, cvv_selectors, cvv, timeout_ms=10000)
+    if not filled_cvv:
+        raise RuntimeError("No se pudo completar el campo CVV en el sitio.")
+
+    confirm_selectors = [
+        "button:has-text('Pagar')",
+        "button:has-text('Confirmar')",
+        "button:has-text('Continuar')",
+        "input[value='Pagar']",
+        "input[value='Confirmar']",
+        ".btn:has-text('Pagar')",
+        ".btn:has-text('Confirmar')",
+    ]
+    clicked_confirm = await _click_first_visible_in_frames(page, confirm_selectors, timeout_ms=12000)
+    if not clicked_confirm:
+        logger.debug("No se encontró botón de confirmación tras CVV; esperando estabilización.")
 
     await _safe_wait_networkidle(page)
 
@@ -438,7 +701,8 @@ async def run_automation(
 
     # Solo carrusel 3 es relevante en este flujo
     c3_clicks     = int(config.get("carousel3_next_clicks", 4))
-    c3_slide      = int(config.get("carousel3_slide", 13))
+    c3_slide      = int(config.get("target_package_slide", config.get("carousel3_slide", 13)))
+    package_keyword = str(config.get("target_package_keyword", "")).strip()
 
     async with async_playwright() as playwright:
 
@@ -454,8 +718,16 @@ async def run_automation(
             viewport={"width": 1696, "height": 784},
         )
 
+        page: Optional[Page] = None
+        watchdog_task: Optional[asyncio.Task] = None
+
         try:
-            page: Page = await context.new_page()
+            page = await context.new_page()
+
+            # Watchdog dedicado para cierre inmediato al presionar "Detener".
+            watchdog_task = asyncio.create_task(
+                _stop_watchdog(stop_event, page, context, browser, notify)
+            )
 
             # ── 1. Página de login ─────────────────────────────────────────
             _check_stop(stop_event)
@@ -475,6 +747,7 @@ async def run_automation(
             else:
                 notify("Popup no presente; continuando al login...")
             await _safe_wait_networkidle(page)
+            await _handle_random_survey(page, notify)
 
             # ── 2. Login ───────────────────────────────────────────────────
             _check_stop(stop_event)
@@ -547,6 +820,7 @@ async def run_automation(
             # Este modal aparece de forma intermitente y puede bloquear todo el menú.
             _check_stop(stop_event)
             await _dismiss_modal(page)
+            await _handle_random_survey(page, notify)
 
             # ── 3. Navegar a Gestiones → Paquetes y recargas ──────────────
             # Flujo Sentinel actualizado: abrir Gestiones, expandir la opción
@@ -565,6 +839,7 @@ async def run_automation(
 
             # Descartar modal de renovación si aparece al entrar en la vista.
             await _dismiss_modal(page)
+            await _handle_random_survey(page, notify)
             await asyncio.sleep(0.3)
 
             # ── 4. Selección de línea en el combo .selectLine ──────────────
@@ -572,6 +847,7 @@ async def run_automation(
             notify(f"Seleccionando línea {phone_number}...")
             await _select_phone_line(page, phone_number, timeout=15000)
             logger.debug("Selección de línea completada para %s.", phone_number)
+            await _handle_random_survey(page, notify)
 
             # Scroll del Sentinel para posicionarse sobre el carrusel.
             await page.mouse.wheel(0, 648)
@@ -596,6 +872,7 @@ async def run_automation(
             notify(f"Navegando carrusel ({c3_clicks} clic(s) en Siguiente)...")
             for _ in range(c3_clicks):
                 _check_stop(stop_event)
+                await _handle_random_survey(page, notify)
                 clicked = await _try_selectors(page, slick_next_selectors, timeout=10000)
                 if not clicked:
                     logger.warning("No se encontró .slick-next para avanzar carrusel")
@@ -605,15 +882,22 @@ async def run_automation(
             # Hace clic en el botón "Comprar" del paquete en la posición c3_slide.
             # El índice nth-child es configurable desde la GUI.
             _check_stop(stop_event)
-            notify(f"Comprando paquete (posición {c3_slide})...")
-            logger.debug("Intentando compra con posición de slide %d.", c3_slide)
-            buy_selectors = [
-                f"div:nth-child(3) > .contBoxPaquetes:nth-child(5) .slick-slide:nth-child({c3_slide}) .btn:nth-child(1)",
-                f".contBoxPaquetes:nth-child(5) .slick-slide:nth-child({c3_slide}) .btn:nth-child(1)",
-                f".contBoxPaquetes .slick-slide:nth-child({c3_slide}) .btn:nth-child(1)",
-                f".slick-slide:nth-child({c3_slide}) .btn:nth-child(1)",
-            ]
-            bought = await _try_selectors(page, buy_selectors, timeout=15000)
+            bought = False
+            if package_keyword:
+                notify(f"Buscando paquete por texto '{package_keyword}'...")
+                bought = await _buy_package_by_keyword(page, package_keyword)
+
+            if not bought:
+                notify(f"Comprando paquete por posición {c3_slide}...")
+                logger.debug("Intentando compra con posición de slide %d.", c3_slide)
+                buy_selectors = [
+                    f"div:nth-child(3) > .contBoxPaquetes:nth-child(5) .slick-slide:nth-child({c3_slide}) .btn:nth-child(1)",
+                    f".contBoxPaquetes:nth-child(5) .slick-slide:nth-child({c3_slide}) .btn:nth-child(1)",
+                    f".contBoxPaquetes .slick-slide:nth-child({c3_slide}) .btn:nth-child(1)",
+                    f".slick-slide:nth-child({c3_slide}) .btn:nth-child(1)",
+                ]
+                bought = await _try_selectors(page, buy_selectors, timeout=15000)
+
             if not bought:
                 # Fallback: _click_and_navigate con el selector original
                 logger.debug("Compra no encontrada por _try_selectors; usando fallback con navegación.")
@@ -627,14 +911,21 @@ async def run_automation(
                 # Cuando sí se encuentra el selector por fallback, aún podría existir
                 # navegación parcial o recarga AJAX; igual esperamos estabilidad.
                 await _safe_wait_networkidle(page)
+            await _handle_random_survey(page, notify)
             await _safe_wait_networkidle(page)
             await _safe_wait_networkidle(page)
 
             # ── 7. Completar formulario de facturación si aparece ──────────
             _check_stop(stop_event)
             await _complete_billing_form(page, config, notify)
+            await _handle_random_survey(page, notify)
 
-            # ── 8. Scrolls finales (igual que Sentinel actualizado) ────────
+            # ── 8. Completar CVV si el sitio lo solicita ───────────────────
+            _check_stop(stop_event)
+            await _complete_cvv_step(page, config, notify)
+            await _handle_random_survey(page, notify)
+
+            # ── 9. Scrolls finales (igual que Sentinel actualizado) ────────
             await page.mouse.wheel(0, 432)
             await page.mouse.wheel(0, -324)
 
@@ -653,12 +944,24 @@ async def run_automation(
             raise
 
         except Exception as exc:
+            # Si hubo señal de parada, tratar cierres abruptos de Playwright como detención normal.
+            if stop_event and stop_event.is_set():
+                notify("⏹ Proceso detenido por el usuario.")
+                raise RuntimeError("stopped by user") from exc
             logger.error("Error inesperado en la automatización: %s", exc, exc_info=True)
             notify(f"❌ Error inesperado: {exc}")
             raise
 
         finally:
+            if watchdog_task:
+                watchdog_task.cancel()
+                try:
+                    await watchdog_task
+                except Exception:
+                    pass
+
             # Siempre cerrar el navegador, incluso si hubo error
-            await context.close()
-            await browser.close()
+            await _safe_close_page(page)
+            await _safe_close_context(context)
+            await _safe_close_browser(browser)
             notify("Navegador cerrado.")

@@ -40,6 +40,8 @@ DEFAULT_CONFIG: dict = {
     "carousel2_next_clicks": 9,   # Clics en "Next" del carrusel 2 (paquetes extra)
     "carousel3_next_clicks": 4,   # Clics en "Next" del carrusel 3 (tarjeta)
     "carousel3_slide": 13,        # Índice del paquete en carrusel 3
+    "target_package_slide": 13,   # Selector explícito del paquete objetivo (GUI)
+    "target_package_keyword": "", # Texto opcional del paquete (prioridad sobre slide)
 
     # Método de pago seleccionado
     "payment_method": "tarjeta",  # "saldo" o "tarjeta"
@@ -50,6 +52,7 @@ DEFAULT_CONFIG: dict = {
     "billing_nit": "",            # NIT
     "billing_address": "",        # Dirección de facturación
     "billing_email": "",          # Correo para recibir factura
+    "billing_cvv": "",            # CVV para confirmar compra con tarjeta guardada
 
     # Comportamiento automático
     "auto_start": False,          # Iniciar automatización al abrir la app

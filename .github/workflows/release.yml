@@ -60,15 +60,21 @@ jobs:
       # pero sí el ejecutable pyinstaller en Scripts/ tras pip install.
       - name: Compilar .exe
         run: |
+          $iconPath = Join-Path $env:GITHUB_WORKSPACE "Banking_00012_A_icon-icons.com_59833.ico"
+          if (!(Test-Path $iconPath)) {
+            Write-Error "ERROR: No se encontró el ícono en $iconPath"
+            exit 1
+          }
+
           pyinstaller `
             --onefile `
             --noconsole `
-            --icon="Banking_00012_A_icon-icons.com_59833.ico" `
+            --icon="$iconPath" `
             --name="ComprasClaroGT" `
             --distpath="." `
             --workpath="build_tmp" `
             --specpath="build_tmp" `
-            --add-data="Banking_00012_A_icon-icons.com_59833.ico;." `
+            --add-data="$iconPath;." `
             main.py
 
       # 7. Verificar que el .exe fue creado

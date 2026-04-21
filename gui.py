@@ -368,10 +368,44 @@ class ClaroApp(ctk.CTk):
         self._c2_clicks = ctk.StringVar(value="9")
         self._c3_clicks = ctk.StringVar(value="4")
         self._c3_slide  = ctk.StringVar(value="13")
+        self._target_package_slide = ctk.StringVar(value="13")
+        self._target_package_keyword = ctk.StringVar(value="")
 
         _carousel_block(parent, "carousel1_title", self._c1_clicks, self._c1_slide)
         _carousel_block(parent, "carousel2_title", self._c2_clicks)          # sin slide
         _carousel_block(parent, "carousel3_title", self._c3_clicks, self._c3_slide)
+
+        # Selector explícito del paquete objetivo usado por la automatización.
+        target_frame = ctk.CTkFrame(parent)
+        target_frame.pack(fill="x", padx=10, pady=(8, 2))
+        ctk.CTkLabel(
+            target_frame,
+            text=get_text("label_target_package_slide", lang),
+            font=ctk.CTkFont(weight="bold"),
+        ).pack(anchor="w", padx=10, pady=(8, 4))
+        target_row = ctk.CTkFrame(target_frame, fg_color="transparent")
+        target_row.pack(fill="x", padx=10, pady=(0, 8))
+        target_entry = ctk.CTkEntry(target_row, textvariable=self._target_package_slide, width=70, height=28)
+        target_entry.pack(side="left", padx=6)
+        target_entry.bind("<FocusOut>", lambda _e: self._autosave())
+
+        keyword_frame = ctk.CTkFrame(parent)
+        keyword_frame.pack(fill="x", padx=10, pady=(6, 2))
+        ctk.CTkLabel(
+            keyword_frame,
+            text=get_text("label_target_package_keyword", lang),
+            font=ctk.CTkFont(weight="bold"),
+        ).pack(anchor="w", padx=10, pady=(8, 2))
+        keyword_entry = ctk.CTkEntry(keyword_frame, textvariable=self._target_package_keyword, height=30)
+        keyword_entry.pack(fill="x", padx=10, pady=(0, 4))
+        keyword_entry.bind("<FocusOut>", lambda _e: self._autosave())
+        ctk.CTkLabel(
+            keyword_frame,
+            text=get_text("help_target_package_keyword", lang),
+            text_color=("gray45", "gray60"),
+            wraplength=300,
+            justify="left",
+        ).pack(fill="x", padx=10, pady=(0, 8))
 
         # Separador + método de pago
         ctk.CTkFrame(parent, height=1, fg_color=("gray65", "gray30")).pack(fill="x", padx=10, pady=8)
@@ -477,6 +511,11 @@ class ClaroApp(ctk.CTk):
         self._billing_email.pack(fill="x", padx=12, pady=(0, 4))
         self._billing_email.bind("<FocusOut>", lambda _e: self._autosave())
 
+        row(get_text("label_billing_cvv", lang))
+        self._billing_cvv = ctk.CTkEntry(parent, placeholder_text="123", show="•", height=34)
+        self._billing_cvv.pack(fill="x", padx=12, pady=(0, 4))
+        self._billing_cvv.bind("<FocusOut>", lambda _e: self._autosave())
+
     # ── Panel de log ──────────────────────────────────────────────────────
 
     def _build_log_panel(self, lang: str) -> None:
@@ -522,6 +561,8 @@ class ClaroApp(ctk.CTk):
         self._c2_clicks.set(str(c.get("carousel2_next_clicks",  9)))
         self._c3_clicks.set(str(c.get("carousel3_next_clicks",  4)))
         self._c3_slide.set(str( c.get("carousel3_slide",        13)))
+        self._target_package_slide.set(str(c.get("target_package_slide", c.get("carousel3_slide", 13))))
+        self._target_package_keyword.set(c.get("target_package_keyword", ""))
 
         # Método de pago
         self._payment_var.set(c.get("payment_method", "tarjeta"))
@@ -532,6 +573,7 @@ class ClaroApp(ctk.CTk):
         self._billing_nit.insert(0, c.get("billing_nit", ""))
         self._billing_address.insert(0, c.get("billing_address", ""))
         self._billing_email.insert(0, c.get("billing_email", ""))
+        self._billing_cvv.insert(0, c.get("billing_cvv", ""))
 
         # Opciones
         self._auto_start_var.set(c.get("auto_start",    False))
@@ -577,6 +619,8 @@ class ClaroApp(ctk.CTk):
             "carousel2_next_clicks": _int(self._c2_clicks, 9),
             "carousel3_next_clicks": _int(self._c3_clicks, 4),
             "carousel3_slide":       _int(self._c3_slide,  13),
+            "target_package_slide":  _int(self._target_package_slide, 13),
+            "target_package_keyword": self._target_package_keyword.get().strip(),
             # Pago
             "payment_method": self._payment_var.get(),
             # Facturación
@@ -585,6 +629,7 @@ class ClaroApp(ctk.CTk):
             "billing_nit":      self._billing_nit.get(),
             "billing_address":  self._billing_address.get(),
             "billing_email":    self._billing_email.get(),
+            "billing_cvv":      self._billing_cvv.get(),
             # Opciones
             "auto_start":       self._auto_start_var.get(),
             "auto_close":       self._auto_close_var.get(),
@@ -639,8 +684,8 @@ class ClaroApp(ctk.CTk):
                 "email", "password", "phone_number",
                 "headless", "slow_mo",
                 "billing_autofill", "billing_name", "billing_nit",
-                "billing_address", "billing_email",
-                "carousel3_next_clicks", "carousel3_slide",
+                "billing_address", "billing_email", "billing_cvv",
+                "carousel3_next_clicks", "carousel3_slide", "target_package_slide", "target_package_keyword",
             ) if k in self.cfg}
 
             loop.run_until_complete(

@@ -9,14 +9,21 @@ echo ============================================================
 echo  Compilando Compra Saldo Claro a .exe...
 echo ============================================================
 
+set "SCRIPT_DIR=%~dp0"
+pushd "%SCRIPT_DIR%"
+
 REM Verificar que PyInstaller esté instalado
 pyinstaller --version >nul 2>&1
 if errorlevel 1 (
     echo ERROR: PyInstaller no está instalado.
     echo Instálalo con:  pip install pyinstaller
+    popd
     pause
     exit /b 1
 )
+
+REM Limpiar binario previo para validar resultado real de la compilación actual
+if exist "ComprasClaroGT.exe" del /q "ComprasClaroGT.exe"
 
 REM Compilar con PyInstaller:
 REM  --onefile       : un solo .exe (más portátil)
@@ -30,12 +37,21 @@ REM aunque --specpath apunte a otra carpeta
 pyinstaller ^
     --onefile ^
     --noconsole ^
-    --icon="%~dp0Banking_00012_A_icon-icons.com_59833.ico" ^
+    --icon="%SCRIPT_DIR%Banking_00012_A_icon-icons.com_59833.ico" ^
     --name="ComprasClaroGT" ^
-    --distpath="%~dp0" ^
-    --workpath="%~dp0build_tmp" ^
-    --specpath="%~dp0build_tmp" ^
-    main.py
+    --distpath="." ^
+    --workpath="build_tmp" ^
+    --specpath="build_tmp" ^
+    "main.py"
+
+if errorlevel 1 (
+    echo.
+    echo  ERROR: La compilación falló. Revisa los mensajes anteriores.
+    echo ============================================================
+    popd
+    pause
+    exit /b 1
+)
 
 REM Limpiar archivos temporales de compilación
 if exist "build_tmp" rmdir /s /q "build_tmp"
@@ -48,4 +64,5 @@ if exist "ComprasClaroGT.exe" (
 )
 
 echo ============================================================
+popd
 pause
