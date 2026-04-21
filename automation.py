@@ -65,31 +65,56 @@ async def _dismiss_modal(page: Page) -> None:
 
     logger.debug("Modal detectado; intentando cerrarlo...")
 
-    # Intentar botón de cierre interno del modal (distintas convenciones de clase)
+    # ── Prioridad 1: botón "Aceptar" / "Entendido" / "OK" ─────────────────
+    # El modal de renovación muestra el texto "¡Hola XXX -, ya puedes renovar!
+    # Dirígete a la sección de notificaciones..." con un botón de confirmación.
+    # Se buscan botones por texto antes que por clase para mayor robustez.
+    accept_selectors = [
+        '#Modal button:has-text("Aceptar")',
+        '#Modal button:has-text("Entendido")',
+        '#Modal button:has-text("OK")',
+        '#Modal button:has-text("Cerrar")',
+        '#Modal button:has-text("Continuar")',
+        '#Modal a:has-text("Aceptar")',
+        '#Modal a:has-text("Entendido")',
+        ".renovationFavoriteModal button:has-text('Aceptar')",
+        ".renovationFavoriteModal button:has-text('Entendido')",
+        ".renovationFavoriteModal a",           # Enlace dentro del modal
+        ".renovationFavoriteModal .btnPrimario", # Botón primario del sitio
+        ".renovationFavoriteModal .btn",
+    ]
+    for sel in accept_selectors:
+        if await _safe_click(page, sel, timeout=1000):
+            notify_fn = logger.debug
+            notify_fn("Modal de renovación aceptado con selector: %s", sel)
+            await asyncio.sleep(0.3)
+            return
+
+    # ── Prioridad 2: botón de cierre (X) del modal ─────────────────────────
     close_selectors = [
         "#Modal .close",
         "#Modal .btn-close",
         "#Modal [aria-label='Close']",
+        "#Modal [aria-label='Cerrar']",
         "#Modal .ico-close",
         "#Modal .modal-close",
         ".renovationFavoriteModal .close",
-        ".renovationFavoriteModal button",
     ]
     for sel in close_selectors:
         if await _safe_click(page, sel, timeout=1000):
-            logger.debug("Modal cerrado con selector: %s", sel)
+            logger.debug("Modal cerrado con botón X: %s", sel)
             await asyncio.sleep(0.3)
             return
 
-    # Intentar tecla Escape
+    # ── Prioridad 3: tecla Escape ──────────────────────────────────────────
     await page.keyboard.press("Escape")
     await asyncio.sleep(0.4)
 
-    # Intentar clic directo en el overlay blur (a veces cierra el modal)
+    # ── Prioridad 4: clic en el backdrop/blur para cerrar ──────────────────
     await _safe_click(page, "#Modal .blur", timeout=1000)
     await _safe_click(page, ".Blurxx", timeout=1000)
 
-    # Último recurso: forzar ocultado por JavaScript.
+    # ── Prioridad 5 (último recurso): ocultar via JavaScript ───────────────
     # Aceptable en automatización porque controlamos el contexto del navegador.
     await page.evaluate("""() => {
         const modal = document.getElementById('Modal');
