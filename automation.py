@@ -1,8 +1,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # automation.py  –  Automatización de compra de paquetes en Mi Claro (GT)
-# Flujo V0.1.0: reescrito a partir de la grabación de Deploy Sentinel.
-# Usa el menú de escritorio "Gestiones > Compras" en lugar del menú móvil.
-# Solo requiere el Carrusel 3 (Tarjeta); los carruseles 1 y 2 fueron eliminados.
+# Flujo actualizado a partir de la grabación más reciente de Deploy Sentinel.
+# Usa el menú de escritorio "Gestiones > Paquetes y recargas".
+# Selecciona la línea objetivo en .selectLine y compra desde el carrusel 3.
 # Se ejecuta en un hilo de fondo con su propio asyncio event loop.
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -166,6 +166,33 @@ async def _click_locator_and_navigate(page: Page, locator: Locator, timeout: int
 
     # Fallback final: click sin navegación dura + espera de estabilidad
     await locator.click(timeout=click_timeout)
+    await _safe_wait_networkidle(page)
+
+
+async def _select_phone_line(page: Page, phone_number: str, timeout: int = 15000) -> None:
+    """
+    Selecciona en .selectLine la opción cuyo value contiene el número deseado.
+    El sitio serializa la línea como JSON en el atributo value del <option>.
+    """
+    await page.wait_for_selector(".selectLine", state="visible", timeout=timeout)
+
+    option_values = await page.locator(".selectLine option").evaluate_all(
+        """options => options
+            .map(option => option.value)
+            .filter(value => typeof value === 'string' && value.trim().length > 0)"""
+    )
+
+    selected_value = next(
+        (value for value in option_values if phone_number in value),
+        None,
+    )
+
+    if not selected_value:
+        raise RuntimeError(
+            f"No se encontró la línea {phone_number} dentro del selector .selectLine."
+        )
+
+    await page.select_option(".selectLine", value=selected_value)
     await _safe_wait_networkidle(page)
 
 
@@ -415,85 +442,33 @@ async def run_automation(
             _check_stop(stop_event)
             await _dismiss_modal(page)
 
-            # ── 3. Navegar a Gestiones → Compras ──────────────────────────
-            # Flujo Sentinel: menú de escritorio "Gestiones" en lugar del menú móvil
+            # ── 3. Navegar a Gestiones → Paquetes y recargas ──────────────
+            # Flujo Sentinel actualizado: abrir Gestiones, expandir la opción
+            # Compras y entrar en "Paquetes y recargas".
             _check_stop(stop_event)
             notify("Abriendo menú Gestiones...")
             await page.click(".menu_header_gestiones > label")
 
-            notify("Seleccionando Compras en el menú...")
-            await page.click(".hideOnDesk:nth-child(3) a")   # Enlace "Compras"
-            await page.click(".selectedTitleOp")               # Confirmar selección
+            notify("Expandiendo menú Compras...")
+            await page.click(".hideOnDesk:nth-child(3) .ico-chevron-down")
 
-            # Paso Sentinel: intentar "Aceptar" justo después de confirmar Compras.
-            # Si no está presente, no interrumpe el flujo.
-            await _safe_click(page, ".btnBlancoRojo", timeout=1500)
+            notify("Abriendo Paquetes y recargas...")
+            await _click_and_navigate(page, ".subRoutes a", timeout=20000)
 
-            # Descartar modal de renovación — según Sentinel aparece exactamente
-            # tras la primera confirmación de Compras (.selectedTitleOp).
+            # Descartar modal de renovación si aparece al entrar en la vista.
             await _dismiss_modal(page)
             await asyncio.sleep(0.3)
 
-            # ── 5. Scroll y selección de número de teléfono ───────────────
+            # ── 4. Selección de línea en el combo .selectLine ──────────────
             _check_stop(stop_event)
-            notify(f"Buscando número {phone_number}...")
+            notify(f"Seleccionando línea {phone_number}...")
+            await _select_phone_line(page, phone_number, timeout=15000)
 
-            # Scrolls para exponer la lista de números (del flujo Sentinel)
-            await page.mouse.wheel(0, 2376)
-            await page.mouse.wheel(0, -216)
+            # Scroll del Sentinel para posicionarse sobre el carrusel.
+            await page.mouse.wheel(0, 648)
 
-            # Clic directo en el número dentro del boxConsume correspondiente.
-            # Sentinel usa nth-child(7) para el número configurado;
-            # si hay múltiples números intenta primero por texto y luego por posición.
-            phone_link = page.locator(".boxConsume p", has_text=phone_number)
-            if await phone_link.count() > 0:
-                # Clic en el número por texto y esperar navegación con fallback SPA
-                await _click_locator_and_navigate(page, phone_link.first, timeout=15000)
-            else:
-                logger.warning("Número %s no encontrado por texto; usando posición.", phone_number)
-                await _click_and_navigate(page, ".boxConsume:nth-child(7) p:nth-child(1)", timeout=15000)
-
-            await _safe_wait_networkidle(page)
-
-            # ── 6. Scrolls post-selección de número ───────────────────────
-            _check_stop(stop_event)
-            await page.mouse.wheel(0, 216)
-            await page.mouse.wheel(0, 756)
-            await page.mouse.wheel(0, -108)
-
-            # ── 7. Navegar nuevamente a Gestiones → Comprar Paquete ────────
-            # El sentinel realiza una segunda navegación por el menú Gestiones
-            # para llegar directamente a la vista de "Comprar Paquete".
-            _check_stop(stop_event)
-            notify("Navegando a Comprar Paquete via menú Gestiones...")
-            await page.click(".menu_header_gestiones")
-            await page.click(".hideOnDesk:nth-child(3) a")
-            await page.click(".selectedTitleOp")
-            await page.click(".hideOnDesk:nth-child(3) > .displayOp")
-            await page.click(".selectedTitleOp")
-
-            # Scrolls para posicionar la vista en la sección de paquetes
-            await page.mouse.wheel(0, 1296)
-            await page.mouse.wheel(0, -432)
-            await page.mouse.wheel(0, 216)
-
-            # ── 8. Click en "Comprar Paquete" ─────────────────────────────
-            _check_stop(stop_event)
-            notify("Abriendo vista de compra de paquetes...")
-            await _click_and_navigate(
-                page,
-                ".boxConsume:nth-child(7) #compraPaquete > .textLink1:nth-child(2)",
-                timeout=20000,
-            )
-            await _safe_wait_networkidle(page)
-
-            # ── 9. Scroll para mostrar el carrusel ────────────────────────
-            _check_stop(stop_event)
-            notify("Desplazando hacia el carrusel de paquetes...")
-            await page.mouse.wheel(0, 756)
-
-            # ── 10. Navegar Carrusel 3 (Tarjeta) ──────────────────────────
-            # Solo carrusel 3 según el flujo capturado por Sentinel.
+            # ── 5. Navegar Carrusel 3 (Tarjeta) ───────────────────────────
+            # El flujo actualizado entra directo al carrusel luego de elegir línea.
             # El número de clics es configurable desde la GUI.
             # Selectores en orden de especificidad: Sentinel exacto → sin wrapper → global
             _check_stop(stop_event)
@@ -516,7 +491,7 @@ async def run_automation(
                     logger.warning("No se encontró .slick-next para avanzar carrusel")
                 await asyncio.sleep(0.3)
 
-            # ── 11. Comprar paquete en el carrusel ────────────────────────
+            # ── 6. Comprar paquete en el carrusel ─────────────────────────
             # Hace clic en el botón "Comprar" del paquete en la posición c3_slide.
             # El índice nth-child es configurable desde la GUI.
             _check_stop(stop_event)
@@ -543,8 +518,8 @@ async def run_automation(
             await _safe_wait_networkidle(page)
             await _safe_wait_networkidle(page)
 
-            # ── 12. Scrolls finales (igual que Sentinel) ───────────────────
-            await page.mouse.wheel(0, 324)
+            # ── 7. Scrolls finales (igual que Sentinel actualizado) ────────
+            await page.mouse.wheel(0, 432)
             await page.mouse.wheel(0, -324)
 
             notify("✅ Proceso de compra completado exitosamente.")
