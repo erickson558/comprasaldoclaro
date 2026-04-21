@@ -55,9 +55,12 @@ jobs:
           print(f"Versión detectada: {VERSION}")
 
       # 6. Compilar a .exe con PyInstaller
+      # NOTA: se usa 'pyinstaller' directo (no 'python -m pyinstaller') porque
+      # en el runner windows-latest el módulo no está en el PATH de python -m
+      # pero sí el ejecutable pyinstaller en Scripts/ tras pip install.
       - name: Compilar .exe
         run: |
-          python -m pyinstaller `
+          pyinstaller `
             --onefile `
             --noconsole `
             --icon="Banking_00012_A_icon-icons.com_59833.ico" `
