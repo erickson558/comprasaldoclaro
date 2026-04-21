@@ -261,9 +261,58 @@ async def _click_first_visible_in_frames(page: Page, selectors: list[str], timeo
         return False
 
     frame, selector = found
-    await frame.locator(selector).first.click()
-    logger.debug("Click ejecutado en frame con selector %s", selector)
-    return True
+    try:
+        await frame.locator(selector).first.click()
+        logger.debug("Click ejecutado en frame con selector %s", selector)
+        return True
+    except Exception as exc:
+        logger.debug("Click normal falló en selector %s: %s", selector, exc)
+
+    # Fallback: click vía JavaScript para casos con overlays/interceptación.
+    try:
+        clicked = await frame.evaluate(
+            """(sel) => {
+                const el = document.querySelector(sel);
+                if (!el) return false;
+                el.click();
+                return true;
+            }""",
+            selector,
+        )
+        if clicked:
+            logger.debug("Click JS ejecutado en frame con selector %s", selector)
+            return True
+    except Exception as exc:
+        logger.debug("Click JS falló en selector %s: %s", selector, exc)
+
+    return False
+
+
+async def _click_continue_fallback_in_frames(page: Page) -> bool:
+    """
+    Busca y ejecuta el botón de continuación/confirmación en cualquier frame.
+    Útil cuando el DOM no usa botones estándar detectables por selector CSS.
+    """
+    for frame in page.frames:
+        try:
+            clicked = await frame.evaluate(
+                """() => {
+                    const candidates = Array.from(document.querySelectorAll('button, input[type="submit"], input[type="button"], a, .btn'));
+                    const target = candidates.find(el => {
+                        const text = ((el.textContent || '') + ' ' + (el.value || '')).toLowerCase();
+                        return text.includes('continuar') || text.includes('siguiente') || text.includes('pagar') || text.includes('finalizar');
+                    });
+                    if (!target) return false;
+                    target.click();
+                    return true;
+                }"""
+            )
+            if clicked:
+                logger.debug("Click fallback de continuación ejecutado en frame %s", frame.url)
+                return True
+        except Exception:
+            continue
+    return False
 
 
 async def _safe_close_page(page: Optional[Page]) -> None:
@@ -337,44 +386,112 @@ async def _handle_random_survey(page: Page, notify: Callable[[str], None]) -> No
     frame, _ = found
     notify("Encuesta aleatoria detectada; resolviendo automáticamente...")
 
-    try:
-        # Click exacto sobre el valor 10 de recomendación.
-        score_clicked = await frame.evaluate(
-            """() => {
-                const candidates = Array.from(document.querySelectorAll('button, [role="button"], div, a'));
-                const target = candidates.find(el => (el.textContent || '').trim() === '10');
-                if (!target) return false;
-                target.click();
-                return true;
-            }"""
+    # Resolver encuesta dentro del contenedor del modal para evitar clicks fuera.
+    modal_roots = [
+        ".QSIWebResponsiveDialog",
+        ".QSIWebResponsive",
+        "div[role='dialog']",
+        "body",
+    ]
+
+    score_clicked = False
+    for root in modal_roots:
+        score_selectors = [
+            f"{root} button[aria-label='10']",
+            f"{root} [role='button'][aria-label='10']",
+            f"{root} button:has-text('10')",
+            f"{root} [role='button']:has-text('10')",
+            f"{root} label:has-text('10')",
+            f"{root} .QSIAnswerChoice:has-text('10')",
+        ]
+        for selector in score_selectors:
+            try:
+                await frame.wait_for_selector(selector, state="visible", timeout=350)
+                await frame.locator(selector).first.click()
+                score_clicked = True
+                logger.debug("Encuesta: score 10 marcado con selector %s", selector)
+                break
+            except Exception:
+                continue
+        if score_clicked:
+            break
+
+    if not score_clicked:
+        try:
+            # Fallback JS: ubica el texto "10" dentro del modal y clickea su ancestro interactivo.
+            score_clicked = bool(await frame.evaluate(
+                """() => {
+                    const root = document.querySelector('.QSIWebResponsiveDialog, .QSIWebResponsive, [role="dialog"]') || document.body;
+                    const nodes = Array.from(root.querySelectorAll('*'));
+                    const target = nodes.find(el => (el.textContent || '').trim() === '10');
+                    if (!target) return false;
+
+                    const clickable = target.closest('button, label, [role="button"], a, div') || target;
+                    ['pointerdown', 'mousedown', 'mouseup', 'click'].forEach(type => {
+                        clickable.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+                    });
+                    return true;
+                }"""
+            ))
+            logger.debug("Encuesta: score 10 por fallback JS = %s", score_clicked)
+        except Exception as exc:
+            logger.debug("No se pudo marcar score 10 en encuesta: %s", exc)
+
+    if score_clicked:
+        await asyncio.sleep(0.2)
+
+    next_clicked = False
+    for root in modal_roots:
+        next_selectors = [
+            f"{root} button:has-text('Siguiente')",
+            f"{root} input[value='Siguiente']",
+            f"{root} button:has-text('Next')",
+            f"{root} input[value='Next']",
+        ]
+        for selector in next_selectors:
+            try:
+                await frame.wait_for_selector(selector, state="visible", timeout=350)
+                await frame.locator(selector).first.click()
+                next_clicked = True
+                logger.debug("Encuesta: botón Siguiente con selector %s", selector)
+                break
+            except Exception:
+                continue
+        if next_clicked:
+            break
+
+    if not next_clicked:
+        await _click_first_visible_in_frames(
+            page,
+            [
+                "button:has-text('Siguiente')",
+                "input[value='Siguiente']",
+                "button:has-text('Next')",
+                "input[value='Next']",
+            ],
+            timeout_ms=2500,
         )
-        logger.debug("Encuesta: click en score 10 = %s", score_clicked)
-    except Exception as exc:
-        logger.debug("No se pudo marcar score 10 en encuesta: %s", exc)
 
-    await _click_first_visible_in_frames(
-        page,
-        [
-            "button:has-text('Siguiente')",
-            "input[value='Siguiente']",
-            "button:has-text('Next')",
-            "input[value='Next']",
-        ],
-        timeout_ms=2500,
-    )
-
-    closed = await _click_first_visible_in_frames(
-        page,
-        [
-            "button[aria-label='Close']",
-            "button[title='Close']",
-            ".close",
-            ".QSIWebResponsiveDialog button[class*='close']",
-            ".QSIWebResponsiveDialog .close-btn",
-            "text=×",
-        ],
-        timeout_ms=2500,
-    )
+    closed = False
+    close_selectors = [
+        ".QSIWebResponsiveDialog button[aria-label='Close']",
+        ".QSIWebResponsiveDialog button[title='Close']",
+        ".QSIWebResponsiveDialog .close",
+        ".QSIWebResponsiveDialog button[class*='close']",
+        ".QSIWebResponsiveDialog .close-btn",
+        "button[aria-label='Close']",
+        "button[title='Close']",
+        "text=×",
+    ]
+    for selector in close_selectors:
+        try:
+            await frame.wait_for_selector(selector, state="visible", timeout=300)
+            await frame.locator(selector).first.click()
+            closed = True
+            logger.debug("Encuesta: modal cerrado con selector %s", selector)
+            break
+        except Exception:
+            continue
     if not closed:
         try:
             await page.keyboard.press("Escape")
@@ -507,15 +624,170 @@ async def _complete_billing_form(page: Page, config: dict, notify: Callable[[str
         "button:has-text('Continuar')",
         "input[value='Continuar']",
         ".btn:has-text('Continuar')",
+        ".btnPrimario",
+        "button.btnPrimario",
+        "button[type='submit']",
+        "input[type='submit']",
+        "button:has-text('Siguiente')",
+        "input[value='Siguiente']",
         "button:has-text('Pagar')",
+        "input[value='Pagar']",
+        "button:has-text('Finalizar')",
         ".btn:has-text('Pagar')",
     ]
     notify("Enviando formulario de facturación...")
     clicked_continue = await _click_first_visible_in_frames(page, continue_selectors, timeout_ms=12000)
     if not clicked_continue:
+        clicked_continue = await _click_continue_fallback_in_frames(page)
+    if not clicked_continue:
         raise RuntimeError("No se encontró el botón 'Continuar' del formulario de facturación.")
 
     await _safe_wait_networkidle(page)
+
+
+async def _select_payment_method(page: Page, config: dict, notify: Callable[[str], None]) -> None:
+    """
+    Selecciona explícitamente el método de pago (tarjeta/saldo) si esa vista aparece.
+    Mantiene compatibilidad: si el selector no existe, continúa sin romper flujo.
+    """
+    payment_method = str(config.get("payment_method", "tarjeta")).strip().lower()
+    if payment_method not in {"tarjeta", "saldo"}:
+        payment_method = "tarjeta"
+
+    target_words = ["tarjeta", "card", "credito", "débito", "debito"] if payment_method == "tarjeta" else ["saldo", "balance"]
+    notify(f"Validando método de pago: {payment_method}...")
+
+    selectors = [
+        "input[type='radio'][value*='tarjeta' i]" if payment_method == "tarjeta" else "input[type='radio'][value*='saldo' i]",
+        "label:has-text('Tarjeta')" if payment_method == "tarjeta" else "label:has-text('Saldo')",
+        "button:has-text('Tarjeta')" if payment_method == "tarjeta" else "button:has-text('Saldo')",
+        "[class*='tarjeta']" if payment_method == "tarjeta" else "[class*='saldo']",
+    ]
+
+    clicked = await _click_first_visible_in_frames(page, selectors, timeout_ms=4000)
+    if clicked:
+        await _safe_wait_networkidle(page, timeout=6000)
+        return
+
+    # Fallback por texto visible dentro de cualquier frame.
+    for frame in page.frames:
+        try:
+            found = await frame.evaluate(
+                """(words) => {
+                    const candidates = Array.from(document.querySelectorAll('label, button, a, div, span, input[type="radio"]'));
+                    const norm = (txt) => (txt || '').toLowerCase();
+                    const target = candidates.find(el => {
+                        const text = norm(el.textContent) + ' ' + norm(el.getAttribute('value')) + ' ' + norm(el.getAttribute('aria-label'));
+                        return words.some(w => text.includes(w));
+                    });
+                    if (!target) return false;
+
+                    const clickable = target.closest('label, button, a, [role="button"], div') || target;
+                    clickable.click();
+                    return true;
+                }""",
+                target_words,
+            )
+            if found:
+                logger.debug("Método de pago '%s' seleccionado por fallback en frame %s", payment_method, frame.url)
+                await _safe_wait_networkidle(page, timeout=6000)
+                return
+        except Exception:
+            continue
+
+    logger.debug("No se encontró selector de método de pago '%s'; se continúa con el flujo actual.", payment_method)
+
+
+async def _select_saved_card_and_continue(page: Page, notify: Callable[[str], None]) -> None:
+    """
+    Atiende la pantalla intermedia de checkout: "Selecciona tu tarjeta".
+    Selecciona la primera tarjeta disponible y luego pulsa "Continuar".
+    """
+    card_screen_markers = [
+        "text=Selecciona tu tarjeta",
+        "text=Selecciona la tarjeta",
+    ]
+
+    found = await _find_visible_in_frames(page, card_screen_markers, timeout_ms=9000)
+    if not found:
+        logger.debug("Pantalla de selección de tarjeta no detectada; continuando.")
+        return
+
+    notify("Pantalla de tarjeta detectada; seleccionando tarjeta guardada...")
+
+    # Intento 1: select nativo con options.
+    selected = False
+    for frame in page.frames:
+        try:
+            selected = bool(await frame.evaluate(
+                """() => {
+                    const visible = (el) => {
+                        if (!el) return false;
+                        const st = window.getComputedStyle(el);
+                        return st.display !== 'none' && st.visibility !== 'hidden' && el.offsetParent !== null;
+                    };
+
+                    const selects = Array.from(document.querySelectorAll('select')).filter(visible);
+                    for (const sel of selects) {
+                        const options = Array.from(sel.options || []);
+                        const valid = options.find(opt => {
+                            const txt = (opt.textContent || '').trim().toLowerCase();
+                            return !opt.disabled && !!opt.value && !txt.includes('selecciona');
+                        });
+                        if (!valid) continue;
+
+                        sel.value = valid.value;
+                        sel.dispatchEvent(new Event('input', { bubbles: true }));
+                        sel.dispatchEvent(new Event('change', { bubbles: true }));
+                        return true;
+                    }
+                    return false;
+                }"""
+            ))
+            if selected:
+                logger.debug("Tarjeta seleccionada en select nativo en frame %s", frame.url)
+                break
+        except Exception:
+            continue
+
+    # Intento 2: dropdown custom (placeholder + opciones en overlay/lista).
+    if not selected:
+        dropdown_selectors = [
+            "button:has-text('Selecciona tu tarjeta')",
+            "label:has-text('Selecciona tu tarjeta')",
+            "div:has-text('Selecciona tu tarjeta')",
+            "[role='combobox']",
+            ".ng-select-container",
+            ".select2-selection",
+        ]
+        await _click_first_visible_in_frames(page, dropdown_selectors, timeout_ms=3000)
+        await asyncio.sleep(0.4)
+
+        option_selectors = [
+            "[role='option']:not(:has-text('Selecciona'))",
+            ".ng-option:not(:has-text('Selecciona'))",
+            "li:not(:has-text('Selecciona'))",
+            "div[role='listbox'] div:not(:has-text('Selecciona'))",
+        ]
+        selected = await _click_first_visible_in_frames(page, option_selectors, timeout_ms=4000)
+
+    if not selected:
+        logger.debug("No se logró seleccionar tarjeta automáticamente en esta vista.")
+
+    # Con tarjeta elegida (o si ya venía elegida), intentar continuar.
+    continue_selectors = [
+        "button:has-text('Continuar')",
+        "input[value='Continuar']",
+        ".btn:has-text('Continuar')",
+        ".btnPrimario",
+        "button.btnPrimario",
+    ]
+    clicked_continue = await _click_first_visible_in_frames(page, continue_selectors, timeout_ms=7000)
+    if clicked_continue:
+        notify("Tarjeta seleccionada; continuando checkout...")
+        await _safe_wait_networkidle(page, timeout=8000)
+    else:
+        logger.debug("Botón Continuar de selección de tarjeta no encontrado en esta vista.")
 
 
 async def _complete_cvv_step(page: Page, config: dict, notify: Callable[[str], None]) -> None:
@@ -698,6 +970,7 @@ async def run_automation(
     phone_number  = config.get("phone_number", "34884422")
     headless      = config.get("headless", True)
     slow_mo       = int(config.get("slow_mo", 0))
+    payment_method = str(config.get("payment_method", "tarjeta")).strip().lower()
 
     # Solo carrusel 3 es relevante en este flujo
     c3_clicks     = int(config.get("carousel3_next_clicks", 4))
@@ -914,6 +1187,18 @@ async def run_automation(
             await _handle_random_survey(page, notify)
             await _safe_wait_networkidle(page)
             await _safe_wait_networkidle(page)
+
+            # ── 6.1 Seleccionar método de pago explícito si la vista lo requiere ─
+            _check_stop(stop_event)
+            config_with_payment = dict(config)
+            config_with_payment["payment_method"] = payment_method
+            await _select_payment_method(page, config_with_payment, notify)
+            await _handle_random_survey(page, notify)
+
+            # ── 6.2 Seleccionar tarjeta guardada y continuar checkout ────────
+            _check_stop(stop_event)
+            await _select_saved_card_and_continue(page, notify)
+            await _handle_random_survey(page, notify)
 
             # ── 7. Completar formulario de facturación si aparece ──────────
             _check_stop(stop_event)
