@@ -83,13 +83,17 @@ async def _dismiss_modal(page: Page) -> None:
       - El botón de aceptar tiene clase .btnBlancoRojo  ← selector principal
       - El contenedor es div#Modal con .renovationFavoriteModal y .blur
 
+    El botón "Aceptar" es: <button class="btn btnBlancoRojo">Aceptar</button>
+    El overlay .blur tiene z-index superior al botón, por lo que page.click() normal
+    falla porque Playwright detecta que el puntero sería interceptado por .blur.
+    Solución: usar element.click() desde JavaScript, que bypasea z-index y
+    pointer-events y dispara el evento directamente sobre el elemento DOM.
+
     Niveles de fallback (se detiene en el primero que funcione):
-      1. Botón .btnBlancoRojo (botón "Aceptar" del modal de renovación)
-      2. Botones por texto: Aceptar, Entendido, OK, Cerrar, Continuar
-      3. Botón X de cierre interno
-      4. Tecla Escape
-      5. Clic en el overlay .blur para cerrar
-      6. Ocultar via JavaScript (último recurso legítimo en automatización)
+      1. JS element.click() en .btnBlancoRojo  ← bypasea overlay
+      2. JS element.click() en botón por texto (Aceptar, Entendido, OK…)
+      3. Tecla Escape
+      4. Ocultar via JavaScript (display:none + pointerEvents:none)
     """
     # Verificar si el modal es visible antes de intentar cerrarlo
     modal = page.locator("#Modal")
@@ -103,54 +107,44 @@ async def _dismiss_modal(page: Page) -> None:
 
     logger.debug("Modal detectado; intentando cerrarlo...")
 
-    # ── Prioridad 1: .btnBlancoRojo — botón "Aceptar" del modal de renovación
-    # Selector capturado con Deploy Sentinel; es el más confiable para este modal.
-    if await _safe_click(page, ".btnBlancoRojo", timeout=2000):
-        logger.debug("Modal cerrado con .btnBlancoRojo")
-        await asyncio.sleep(0.3)
+    # ── Prioridad 1: JS click directo en .btnBlancoRojo ───────────────────────
+    # El botón "Aceptar" tiene HTML: <button class="btn btnBlancoRojo">Aceptar</button>
+    # El overlay .blur (z-index superior) bloquea page.click() normal porque
+    # Playwright verifica que el puntero no sea interceptado antes de hacer clic.
+    # element.click() desde JavaScript bypasea esa verificación y dispara el
+    # evento directamente sobre el elemento, ignorando z-index y pointer-events.
+    clicked = await page.evaluate("""() => {
+        const btn = document.querySelector('.btnBlancoRojo');
+        if (btn) { btn.click(); return true; }
+        return false;
+    }""")
+    if clicked:
+        logger.debug("Modal cerrado con JS click en .btnBlancoRojo")
+        await asyncio.sleep(0.5)
         return
 
-    # ── Prioridad 2: botones por texto dentro del modal ──────────────────────
-    text_selectors = [
-        '#Modal button:has-text("Aceptar")',
-        '#Modal button:has-text("Entendido")',
-        '#Modal button:has-text("OK")',
-        '#Modal button:has-text("Cerrar")',
-        '#Modal button:has-text("Continuar")',
-        '#Modal a:has-text("Aceptar")',
-        '#Modal a:has-text("Entendido")',
-        ".renovationFavoriteModal .btnPrimario",
-        ".renovationFavoriteModal .btn",
-        ".renovationFavoriteModal a",
-    ]
-    for sel in text_selectors:
-        if await _safe_click(page, sel, timeout=1000):
-            logger.debug("Modal cerrado con selector de texto: %s", sel)
-            await asyncio.sleep(0.3)
-            return
+    # ── Prioridad 2: JS click en cualquier botón del modal por texto ──────────
+    # Misma estrategia — JS click para evitar bloqueo del overlay.
+    clicked = await page.evaluate("""() => {
+        const texts = ['Aceptar', 'Entendido', 'OK', 'Cerrar', 'Continuar'];
+        const modal = document.getElementById('Modal');
+        if (!modal) return false;
+        for (const btn of modal.querySelectorAll('button, a')) {
+            if (texts.some(t => btn.textContent.trim().includes(t))) {
+                btn.click();
+                return true;
+            }
+        }
+        return false;
+    }""")
+    if clicked:
+        logger.debug("Modal cerrado con JS click por texto")
+        await asyncio.sleep(0.5)
+        return
 
-    # ── Prioridad 3: botón X de cierre ───────────────────────────────────────
-    close_selectors = [
-        "#Modal .close",
-        "#Modal .btn-close",
-        "#Modal [aria-label='Close']",
-        "#Modal [aria-label='Cerrar']",
-        "#Modal .ico-close",
-        ".renovationFavoriteModal .close",
-    ]
-    for sel in close_selectors:
-        if await _safe_click(page, sel, timeout=1000):
-            logger.debug("Modal cerrado con botón X: %s", sel)
-            await asyncio.sleep(0.3)
-            return
-
-    # ── Prioridad 4: tecla Escape ─────────────────────────────────────────────
+    # ── Prioridad 3: tecla Escape ─────────────────────────────────────────────
     await page.keyboard.press("Escape")
     await asyncio.sleep(0.4)
-
-    # ── Prioridad 5: clic en el backdrop blur ─────────────────────────────────
-    await _safe_click(page, "#Modal .blur", timeout=1000)
-    await _safe_click(page, ".Blurxx", timeout=1000)
 
     # ── Prioridad 6 (último recurso): ocultar via JavaScript ─────────────────
     # Aceptable en automatización porque controlamos el contexto del navegador.
