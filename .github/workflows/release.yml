@@ -45,10 +45,11 @@ jobs:
         id: version
         shell: python
         run: |
-          import subprocess, sys
-          # Importar version.py y escribir la versión en GITHUB_OUTPUT
+          import os, sys
+          # Agregar el directorio raíz al path para importar version.py
           sys.path.insert(0, ".")
           from version import VERSION
+          # Escribir la versión en GITHUB_OUTPUT para que otros steps la lean
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
               f.write(f"ver={VERSION}\n")
           print(f"Versión detectada: {VERSION}")

@@ -2,22 +2,29 @@
 
 > Automatización de compra de paquetes en **Mi Claro Guatemala** con interfaz gráfica moderna.
 
-[![Version](https://img.shields.io/badge/version-0.0.3-blue)](https://github.com/SynysterRick/comprasaldoclaro/releases)
+[![Version](https://img.shields.io/badge/version-0.0.3-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://python.org)
+[![Build](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml/badge.svg)](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml)
+
+---
+
+## ¿Qué hace?
+
+Automatiza el proceso completo de compra de paquetes de datos en el portal **Mi Claro Guatemala** (`claro.com.gt/miclaro`) usando Playwright/Chromium. Solo configura tu correo, número y parámetros de carrusel — el bot hace todo por ti.
 
 ---
 
 ## Características
 
-- 🤖 **Automatización completa** del proceso de compra en Mi Claro GT usando Playwright/Chromium
+- 🤖 **Automatización completa** del proceso de compra usando Playwright/Chromium
 - 🎨 **Interfaz moderna** con modo oscuro/claro (CustomTkinter)
 - ⚙️ **Totalmente configurable**: email, teléfono, carruseles de paquetes, método de pago
 - 💾 **Auto-guardado** de toda la configuración en `config.json`
 - ⏱️ **Auto-cierre** con countdown visible
 - 📋 **Log en tiempo real** con registro en `log.txt`
 - 🌐 **Multi-idioma** (Español / English)
-- ⌨️ **Atajos de teclado** (F5, F6, Esc, Alt+Enter)
+- ⌨️ **Atajos de teclado** (F5 = Iniciar, F6 = Detener, Esc = Salir, Alt+Enter = Acerca de)
 - 📦 Compilable a `.exe` sin consola
 
 ---
@@ -33,7 +40,7 @@
 
 ```bash
 # 1. Clonar el repositorio
-git clone https://github.com/SynysterRick/comprasaldoclaro.git
+git clone https://github.com/erickson558/comprasaldoclaro.git
 cd comprasaldoclaro
 
 # 2. Instalar dependencias de Python
@@ -75,6 +82,16 @@ O hacer doble clic en `ComprasClaroGT.exe` si ya compilaste.
 build.bat
 ```
 
+O manualmente:
+
+```bash
+pyinstaller --onefile --noconsole \
+  --icon="Banking_00012_A_icon-icons.com_59833.ico" \
+  --name="ComprasClaroGT" \
+  --distpath="." \
+  main.py
+```
+
 El ejecutable `ComprasClaroGT.exe` quedará en la misma carpeta.
 
 ---
@@ -83,30 +100,59 @@ El ejecutable `ComprasClaroGT.exe` quedará en la misma carpeta.
 
 ```
 comprasaldoclaro/
-├── main.py               # Punto de entrada
-├── gui.py                # Interfaz gráfica (CustomTkinter)
-├── automation.py         # Automatización Playwright
-├── config_manager.py     # Gestión de config.json
-├── log_setup.py          # Configuración de logging
-├── i18n.py               # Traducciones ES/EN
-├── version.py            # Versión de la app
-├── requirements.txt      # Dependencias
-├── build.bat             # Script de compilación
+├── main.py                  # Punto de entrada: verifica deps y lanza GUI
+├── gui.py                   # Interfaz gráfica (CustomTkinter, tabbed, log en vivo)
+├── automation.py            # Automatización Playwright (async, hilo de fondo)
+├── config_manager.py        # Carga/guarda config.json
+├── log_setup.py             # Logger → log.txt + consola
+├── i18n.py                  # Traducciones ES/EN
+├── version.py               # Fuente única de versión (VERSION = "x.x.x")
+├── requirements.txt         # Dependencias Python
+├── build.bat                # Script de compilación a .exe
+├── Banking_00012_A_icon-icons.com_59833.ico  # Ícono de la app
 └── .github/workflows/
-    └── release.yml       # GitHub Actions (release automático)
+    └── release.yml          # GitHub Actions: build + release automático
 ```
 
 ---
 
 ## Versionado
 
-Se usa [Versionado Semántico](https://semver.org/):
+Se usa [Versionado Semántico](https://semver.org/) con formato `Vx.x.x`:
 
-| Tipo de cambio | Incrementa |
-|---|---|
-| Nuevo flujo de automatización | MAYOR |
-| Nueva funcionalidad en GUI | MENOR |
-| Corrección de bug / ajuste menor | PARCHE |
+| Tipo de cambio | Incrementa | Ejemplo |
+|---|---|---|
+| Cambio en el flujo de automatización | **MAJOR** | V1.0.0 |
+| Nueva funcionalidad en GUI | **MINOR** | V0.1.0 |
+| Corrección de bug / ajuste menor | **PATCH** | V0.0.3 |
+
+La versión debe coincidir en: `version.py` → GUI → README → git tag → GitHub Release.
+
+---
+
+## Changelog
+
+### V0.0.3 — 2026-04-20
+- **fix:** Descarta modal `#Modal` (`.renovationFavoriteModal` / `.blur`) que bloqueaba el clic en "Comprar Paquete" — nuevo helper `_dismiss_modal()` con 4 niveles de fallback
+
+### V0.0.2 — 2026-04-20
+- **fix:** Popup SweetAlert2 inicial ahora es opcional (`_safe_click` con 8 s timeout) — eliminado el crash de 30 s cuando no aparece el popup
+- **fix:** Todas las llamadas `wait_for_load_state("networkidle")` ahora toleran sitios con conexiones persistentes (`_safe_wait_networkidle`)
+- **fix:** Protección `ValueError` en countdown de auto-cierre
+
+### V0.0.1 — 2026-04-20
+- Lanzamiento inicial
+
+---
+
+## GitHub Actions — Release automático
+
+Cada push a `main` dispara el workflow `.github/workflows/release.yml` que:
+1. Instala dependencias y Chromium
+2. Lee la versión desde `version.py`
+3. Compila `ComprasClaroGT.exe` con PyInstaller
+4. Crea un tag `vX.X.X` en GitHub
+5. Publica un GitHub Release con el `.exe` adjunto
 
 ---
 
