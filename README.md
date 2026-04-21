@@ -2,7 +2,7 @@
 
 > Automatización de compra de paquetes en **Mi Claro Guatemala** con interfaz gráfica moderna.
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
+[![Version](https://img.shields.io/badge/version-0.1.1-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://python.org)
 [![Build](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml/badge.svg)](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml)
@@ -131,6 +131,12 @@ La versión debe coincidir en: `version.py` → GUI → README → git tag → G
 ---
 
 ## Changelog
+
+### V0.1.1 — 2026-04-20
+- **fix:** Login tolerante a sesión activa — detecta `.menu_header_gestiones` antes de intentar llenar credenciales; evita crash cuando el usuario ya está logueado
+- **fix:** `page.fill` y `.btnPrimario` click envueltos en try/except — evitan crash si los campos no existen
+- **fix:** Nuevo helper `_click_and_navigate` reemplaza `expect_navigation` directo — tolerante a SPA/AJAX sin navegación completa
+- **fix:** `gui.py` solo pasa a `automation.py` los parámetros que éste usa (elimina carousel1/2 y payment_method del dict)
 
 ### V0.1.0 — 2026-04-20
 - **feat:** Flujo reescrito desde grabación Deploy Sentinel — usa menú "Gestiones > Compras" en escritorio; elimina carruseles 1 y 2; navegación más simple y confiable

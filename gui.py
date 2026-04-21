@@ -572,12 +572,12 @@ class ClaroApp(ctk.CTk):
         asyncio.set_event_loop(loop)
 
         try:
+            # Solo los parámetros que usa automation.py (V0.1.x).
+            # Carruseles 1/2 y payment_method fueron eliminados del flujo Sentinel.
             auto_cfg = {k: self.cfg[k] for k in (
-                "email", "password", "phone_number", "headless", "slow_mo",
-                "carousel1_next_clicks", "carousel1_slide",
-                "carousel2_next_clicks",
+                "email", "password", "phone_number",
+                "headless", "slow_mo",
                 "carousel3_next_clicks", "carousel3_slide",
-                "payment_method",
             ) if k in self.cfg}
 
             loop.run_until_complete(

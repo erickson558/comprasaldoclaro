@@ -59,6 +59,22 @@ async def _safe_wait_networkidle(page: Page, timeout: int = 15000) -> None:
         logger.debug("networkidle no alcanzado en %dms; continuando.", timeout)
 
 
+async def _click_and_navigate(page: Page, selector: str, timeout: int = 20000) -> None:
+    """
+    Hace clic en un selector y espera que el navegador complete la navegación.
+    Si no ocurre navegación completa (ej. SPA con history.pushState o AJAX),
+    captura el timeout silenciosamente y espera networkidle como fallback.
+    Equivalente al Promise.all([click, waitForNavigation]) del Sentinel JS.
+    """
+    try:
+        async with page.expect_navigation(timeout=timeout):
+            await page.click(selector)
+    except Exception:
+        # No hubo navegación completa (SPA / AJAX / popup intermedio)
+        logger.debug("Sin navegación completa tras click en '%s'; esperando networkidle.", selector)
+        await _safe_wait_networkidle(page)
+
+
 async def _dismiss_modal(page: Page) -> None:
     """
     Cierra cualquier modal u overlay que bloquee clics en la página.
@@ -230,22 +246,39 @@ async def run_automation(
 
             # ── 2. Login ───────────────────────────────────────────────────
             _check_stop(stop_event)
-            notify("Ingresando credenciales...")
 
-            # Rellenar email si está configurado
-            if email:
-                await _safe_click(page, '[name="email"]', timeout=3000)
-                await page.fill('[name="email"]', email)
+            # Detectar si el usuario ya está logueado (sesión activa en el navegador).
+            # Si el menú de Gestiones ya es visible, no es necesario ingresar credenciales.
+            already_logged = await page.locator(".menu_header_gestiones").is_visible()
 
-            # Rellenar contraseña si está configurada y el campo existe
-            if password:
-                pass_field = page.locator('[name="password"], [type="password"]')
-                if await pass_field.count() > 0:
-                    await pass_field.first.fill(password)
+            if already_logged:
+                notify("Sesión activa detectada; omitiendo login...")
+            else:
+                notify("Ingresando credenciales...")
 
-            # Click en el botón de login y esperar navegación
-            notify("Enviando formulario de login...")
-            await page.click(".btnPrimario")
+                # Rellenar email — envuelto en try/except por si el campo no existe
+                if email:
+                    try:
+                        email_field = page.locator('[name="email"]')
+                        if await email_field.count() > 0:
+                            await email_field.first.fill(email)
+                    except Exception as e:
+                        logger.warning("No se pudo llenar el email: %s", e)
+
+                # Rellenar contraseña si está configurada y el campo existe
+                if password:
+                    try:
+                        pass_field = page.locator('[name="password"], [type="password"]')
+                        if await pass_field.count() > 0:
+                            await pass_field.first.fill(password)
+                    except Exception as e:
+                        logger.warning("No se pudo llenar la contraseña: %s", e)
+
+                # Click en el botón de login — usa _click_and_navigate para manejar
+                # tanto navegación completa como redirección SPA
+                notify("Enviando formulario de login...")
+                await _click_and_navigate(page, ".btnPrimario", timeout=15000)
+
             await _safe_wait_networkidle(page)
 
             # ── 3. Navegar a Gestiones → Compras ──────────────────────────
@@ -279,13 +312,12 @@ async def run_automation(
             # si hay múltiples números intenta primero por texto y luego por posición.
             phone_link = page.locator(".boxConsume p", has_text=phone_number)
             if await phone_link.count() > 0:
-                # Navegar con el clic que gatilla navegación (como en Sentinel)
-                async with page.expect_navigation(timeout=15000):
-                    await phone_link.first.click()
+                # Clic en el número por texto y esperar navegación con fallback SPA
+                await phone_link.first.click()
+                await _safe_wait_networkidle(page)
             else:
                 logger.warning("Número %s no encontrado por texto; usando posición.", phone_number)
-                async with page.expect_navigation(timeout=15000):
-                    await page.click(".boxConsume:nth-child(7) p:nth-child(1)")
+                await _click_and_navigate(page, ".boxConsume:nth-child(7) p:nth-child(1)", timeout=15000)
 
             await _safe_wait_networkidle(page)
 
@@ -318,10 +350,11 @@ async def run_automation(
             await _dismiss_modal(page)
 
             notify("Abriendo vista de compra de paquetes...")
-            async with page.expect_navigation(timeout=20000):
-                await page.click(
-                    ".boxConsume:nth-child(7) #compraPaquete > .textLink1:nth-child(2)"
-                )
+            await _click_and_navigate(
+                page,
+                ".boxConsume:nth-child(7) #compraPaquete > .textLink1:nth-child(2)",
+                timeout=20000,
+            )
             await _safe_wait_networkidle(page)
 
             # Descartar modal que pueda aparecer en la vista de compra
@@ -346,11 +379,12 @@ async def run_automation(
             # El índice nth-child es configurable desde la GUI.
             _check_stop(stop_event)
             notify(f"Comprando paquete (posición {c3_slide})...")
-            async with page.expect_navigation(timeout=20000):
-                await page.click(
-                    f"div:nth-child(3) > .contBoxPaquetes:nth-child(5) "
-                    f".slick-slide:nth-child({c3_slide}) .btn:nth-child(1)"
-                )
+            await _click_and_navigate(
+                page,
+                f"div:nth-child(3) > .contBoxPaquetes:nth-child(5) "
+                f".slick-slide:nth-child({c3_slide}) .btn:nth-child(1)",
+                timeout=20000,
+            )
             await _safe_wait_networkidle(page)
 
             # ── 12. Scrolls finales (igual que Sentinel) ───────────────────
