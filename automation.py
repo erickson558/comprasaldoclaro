@@ -362,23 +362,48 @@ async def run_automation(
             # ── 10. Navegar Carrusel 3 (Tarjeta) ──────────────────────────
             # Solo carrusel 3 según el flujo capturado por Sentinel.
             # El número de clics es configurable desde la GUI.
+            # Selectores en orden de especificidad: Sentinel exacto → sin wrapper → global
             _check_stop(stop_event)
+            notify("Esperando que cargue el carrusel de paquetes...")
+            try:
+                await page.wait_for_selector(".contBoxPaquetes", timeout=15000)
+            except Exception:
+                logger.warning(".contBoxPaquetes no encontrado en 15s; continuando...")
+
+            slick_next_selectors = [
+                "div:nth-child(3) > .contBoxPaquetes .slick-next",
+                ".contBoxPaquetes .slick-next",
+                ".slick-next",
+            ]
             notify(f"Navegando carrusel ({c3_clicks} clic(s) en Siguiente)...")
             for _ in range(c3_clicks):
                 _check_stop(stop_event)
-                await page.click("div:nth-child(3) > .contBoxPaquetes .slick-next")
+                clicked = await _try_selectors(page, slick_next_selectors, timeout=10000)
+                if not clicked:
+                    logger.warning("No se encontró .slick-next para avanzar carrusel")
+                await asyncio.sleep(0.3)
 
             # ── 11. Comprar paquete en el carrusel ────────────────────────
             # Hace clic en el botón "Comprar" del paquete en la posición c3_slide.
             # El índice nth-child es configurable desde la GUI.
             _check_stop(stop_event)
             notify(f"Comprando paquete (posición {c3_slide})...")
-            await _click_and_navigate(
-                page,
-                f"div:nth-child(3) > .contBoxPaquetes:nth-child(5) "
+            buy_selectors = [
+                f"div:nth-child(3) > .contBoxPaquetes:nth-child(5) .slick-slide:nth-child({c3_slide}) .btn:nth-child(1)",
+                f".contBoxPaquetes:nth-child(5) .slick-slide:nth-child({c3_slide}) .btn:nth-child(1)",
+                f".contBoxPaquetes .slick-slide:nth-child({c3_slide}) .btn:nth-child(1)",
                 f".slick-slide:nth-child({c3_slide}) .btn:nth-child(1)",
-                timeout=20000,
-            )
+            ]
+            bought = await _try_selectors(page, buy_selectors, timeout=15000)
+            if not bought:
+                # Fallback: _click_and_navigate con el selector original
+                await _click_and_navigate(
+                    page,
+                    f"div:nth-child(3) > .contBoxPaquetes:nth-child(5) "
+                    f".slick-slide:nth-child({c3_slide}) .btn:nth-child(1)",
+                    timeout=20000,
+                )
+            await _safe_wait_networkidle(page)
             await _safe_wait_networkidle(page)
 
             # ── 12. Scrolls finales (igual que Sentinel) ───────────────────
