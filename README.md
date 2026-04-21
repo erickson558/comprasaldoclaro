@@ -2,7 +2,7 @@
 
 > Automatización de compra de paquetes en **Mi Claro Guatemala** con interfaz gráfica moderna.
 
-[![Version](https://img.shields.io/badge/version-0.1.6-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
+[![Version](https://img.shields.io/badge/version-0.1.7-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://python.org)
 [![Build](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml/badge.svg)](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml)
@@ -131,6 +131,10 @@ La versión debe coincidir en: `version.py` → GUI → README → git tag → G
 ---
 
 ## Changelog
+
+### V0.1.7 — 2026-04-21
+- **fix:** Restaurado descarte preventivo de modal inmediatamente después de login/sesión activa para evitar bloqueo del menú `Gestiones` por overlay intermitente
+- **fix:** `_click_and_navigate` y `_click_locator_and_navigate` ahora reintentan tras cerrar modal antes del fallback; evita falsos positivos donde el flujo seguía aunque el click real no se ejecutó
 
 ### V0.1.6 — 2026-04-20
 - **fix:** `_click_locator_and_navigate` usa firma explícita con `page: Page` + `locator: Locator` para evitar dependencia implícita de propiedades internas del Locator y mantener compatibilidad estable entre versiones de Playwright

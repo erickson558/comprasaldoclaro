@@ -66,13 +66,28 @@ async def _click_and_navigate(page: Page, selector: str, timeout: int = 20000) -
     captura el timeout silenciosamente y espera networkidle como fallback.
     Equivalente al Promise.all([click, waitForNavigation]) del Sentinel JS.
     """
+    click_timeout = min(timeout, 10000)
+
+    # Intento 1: click+navegación estándar
     try:
         async with page.expect_navigation(timeout=timeout):
-            await page.click(selector)
-    except Exception:
-        # No hubo navegación completa (SPA / AJAX / popup intermedio)
-        logger.debug("Sin navegación completa tras click en '%s'; esperando networkidle.", selector)
-        await _safe_wait_networkidle(page)
+            await page.click(selector, timeout=click_timeout)
+        return
+    except Exception as first_exc:
+        logger.debug("Primer intento click+navegación falló en '%s': %s", selector, first_exc)
+
+    # Intento 2: cerrar modal/overlay y reintentar click+navegación
+    await _dismiss_modal(page)
+    try:
+        async with page.expect_navigation(timeout=timeout):
+            await page.click(selector, timeout=click_timeout)
+        return
+    except Exception as second_exc:
+        logger.debug("Reintento click+navegación falló en '%s': %s", selector, second_exc)
+
+    # Fallback final: click sin navegación dura + espera de estabilidad
+    await page.click(selector, timeout=click_timeout)
+    await _safe_wait_networkidle(page)
 
 
 async def _click_locator_and_navigate(page: Page, locator: Locator, timeout: int = 20000) -> None:
@@ -80,12 +95,28 @@ async def _click_locator_and_navigate(page: Page, locator: Locator, timeout: int
     Hace clic en un Locator y espera navegación si ocurre.
     Si el sitio no navega de forma clásica (SPA/AJAX), cae a networkidle.
     """
+    click_timeout = min(timeout, 10000)
+
+    # Intento 1: click+navegación estándar con locator
     try:
         async with page.expect_navigation(timeout=timeout):
-            await locator.click()
-    except Exception:
-        logger.debug("Sin navegación completa tras click en Locator; esperando networkidle.")
-        await _safe_wait_networkidle(page)
+            await locator.click(timeout=click_timeout)
+        return
+    except Exception as first_exc:
+        logger.debug("Primer intento click+navegación (locator) falló: %s", first_exc)
+
+    # Intento 2: cerrar modal/overlay y reintentar
+    await _dismiss_modal(page)
+    try:
+        async with page.expect_navigation(timeout=timeout):
+            await locator.click(timeout=click_timeout)
+        return
+    except Exception as second_exc:
+        logger.debug("Reintento click+navegación (locator) falló: %s", second_exc)
+
+    # Fallback final: click sin navegación dura + espera de estabilidad
+    await locator.click(timeout=click_timeout)
+    await _safe_wait_networkidle(page)
 
 
 async def _dismiss_modal(page: Page) -> None:
@@ -283,6 +314,11 @@ async def run_automation(
                 await _click_and_navigate(page, ".btnPrimario", timeout=15000)
 
             await _safe_wait_networkidle(page)
+
+            # Cierre preventivo del modal inmediatamente después de login/sesión activa.
+            # Este modal aparece de forma intermitente y puede bloquear todo el menú.
+            _check_stop(stop_event)
+            await _dismiss_modal(page)
 
             # ── 3. Navegar a Gestiones → Compras ──────────────────────────
             # Flujo Sentinel: menú de escritorio "Gestiones" en lugar del menú móvil
