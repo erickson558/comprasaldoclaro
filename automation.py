@@ -29,8 +29,10 @@ async def _safe_click(page: Page, selector: str, timeout: int = 5000) -> bool:
     """
     try:
         await page.click(selector, timeout=timeout)
+        logger.debug("Click exitoso en selector opcional: %s", selector)
         return True
-    except Exception:
+    except Exception as exc:
+        logger.debug("No se pudo hacer click en selector opcional '%s': %s", selector, exc)
         return False
 
 
@@ -40,6 +42,7 @@ async def _try_selectors(page: Page, selectors: list[str], timeout: int = 3000) 
     Devuelve True si alguno funcionó. Útil para el botón "Continuar" con
     múltiples posibles selectores.
     """
+    logger.debug("Probando %d selector(es): %s", len(selectors), selectors)
     for sel in selectors:
         if await _safe_click(page, sel, timeout=timeout):
             logger.debug("Selector encontrado y clicado: %s", sel)
@@ -175,12 +178,14 @@ async def _select_phone_line(page: Page, phone_number: str, timeout: int = 15000
     El sitio serializa la línea como JSON en el atributo value del <option>.
     """
     await page.wait_for_selector(".selectLine", state="visible", timeout=timeout)
+    logger.debug("Selector .selectLine visible; buscando número %s", phone_number)
 
     option_values = await page.locator(".selectLine option").evaluate_all(
         """options => options
             .map(option => option.value)
             .filter(value => typeof value === 'string' && value.trim().length > 0)"""
     )
+    logger.debug(".selectLine contiene %d option(es) con value utilizable.", len(option_values))
 
     selected_value = next(
         (value for value in option_values if phone_number in value),
@@ -192,6 +197,7 @@ async def _select_phone_line(page: Page, phone_number: str, timeout: int = 15000
             f"No se encontró la línea {phone_number} dentro del selector .selectLine."
         )
 
+    logger.debug("Línea seleccionada para %s: %s", phone_number, selected_value)
     await page.select_option(".selectLine", value=selected_value)
     await _safe_wait_networkidle(page)
 
@@ -448,9 +454,11 @@ async def run_automation(
             _check_stop(stop_event)
             notify("Abriendo menú Gestiones...")
             await page.click(".menu_header_gestiones > label")
+            logger.debug("Menú Gestiones abierto.")
 
             notify("Expandiendo menú Compras...")
             await page.click(".hideOnDesk:nth-child(3) .ico-chevron-down")
+            logger.debug("Submenú Compras expandido.")
 
             notify("Abriendo Paquetes y recargas...")
             await _click_and_navigate(page, ".subRoutes a", timeout=20000)
@@ -463,9 +471,11 @@ async def run_automation(
             _check_stop(stop_event)
             notify(f"Seleccionando línea {phone_number}...")
             await _select_phone_line(page, phone_number, timeout=15000)
+            logger.debug("Selección de línea completada para %s.", phone_number)
 
             # Scroll del Sentinel para posicionarse sobre el carrusel.
             await page.mouse.wheel(0, 648)
+            logger.debug("Scroll hacia carrusel completado (Y=648).")
 
             # ── 5. Navegar Carrusel 3 (Tarjeta) ───────────────────────────
             # El flujo actualizado entra directo al carrusel luego de elegir línea.
@@ -496,6 +506,7 @@ async def run_automation(
             # El índice nth-child es configurable desde la GUI.
             _check_stop(stop_event)
             notify(f"Comprando paquete (posición {c3_slide})...")
+            logger.debug("Intentando compra con posición de slide %d.", c3_slide)
             buy_selectors = [
                 f"div:nth-child(3) > .contBoxPaquetes:nth-child(5) .slick-slide:nth-child({c3_slide}) .btn:nth-child(1)",
                 f".contBoxPaquetes:nth-child(5) .slick-slide:nth-child({c3_slide}) .btn:nth-child(1)",
@@ -505,6 +516,7 @@ async def run_automation(
             bought = await _try_selectors(page, buy_selectors, timeout=15000)
             if not bought:
                 # Fallback: _click_and_navigate con el selector original
+                logger.debug("Compra no encontrada por _try_selectors; usando fallback con navegación.")
                 await _click_and_navigate(
                     page,
                     f"div:nth-child(3) > .contBoxPaquetes:nth-child(5) "

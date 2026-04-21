@@ -16,6 +16,7 @@ from typing import Optional
 
 import customtkinter as ctk
 import tkinter as tk
+from tkinter import messagebox
 
 from automation import run_automation
 from config_manager import load_config, save_config
@@ -47,6 +48,7 @@ class ClaroApp(ctk.CTk):
         # Estado del countdown de autocierre
         self._countdown_active: bool = False
         self._countdown_value: int = 0
+        self._pending_close: bool = False   # Cierre diferido mientras el bot se detiene
 
         # Aplicar tema antes de construir cualquier widget
         ctk.set_appearance_mode(self.cfg.get("appearance_mode", "dark"))
@@ -630,6 +632,13 @@ class ClaroApp(ctk.CTk):
                     self.btn_start.configure(state="normal")
                     self.btn_stop.configure(state="disabled")
 
+                    # Si el usuario pidió cerrar mientras el bot corría,
+                    # cerrar solo cuando el hilo ya terminó limpiamente.
+                    if self._pending_close:
+                        self._log_msg("ℹ  Automatización detenida; cerrando aplicación...", "info")
+                        self.after(50, self._finalize_close)
+                        continue
+
                     # Iniciar countdown si el usuario eligió autocierre
                     if self._auto_close_var.get():
                         # Proteger contra valores no numéricos ingresados por el usuario
@@ -776,8 +785,29 @@ class ClaroApp(ctk.CTk):
         ctk.CTkButton(win, text="OK", width=100, command=win.destroy).pack(pady=18)
 
     def _on_close(self) -> None:
-        """Guarda posición, cancela countdown y cierra la app limpiamente."""
+        """Guarda posición y cierra la app; si el bot corre, pide confirmación."""
+        if self.is_running:
+            answer = messagebox.askyesno(
+                "Automatización en curso",
+                "La automatización sigue en ejecución. ¿Deseas detenerla y cerrar la aplicación?"
+            )
+            if not answer:
+                self._set_status("⚙  Cierre cancelado; automatización continúa en ejecución.")
+                self._log_msg("ℹ  Cierre cancelado por el usuario; automatización continúa.", "info")
+                return
+
+            self._pending_close = True
+            self.stop_event.set()
+            self._set_status("⏹  Deteniendo automatización antes de cerrar...")
+            self._log_msg("⏹  Cierre solicitado; esperando detención limpia de la automatización...", "warn")
+            return
+
+        self._finalize_close()
+
+    def _finalize_close(self) -> None:
+        """Persiste estado final y destruye la ventana principal de forma segura."""
         self._stop_countdown()
+        self._pending_close = False
 
         # Persistir geometría final antes de cerrar
         self.cfg.update({
@@ -787,10 +817,6 @@ class ClaroApp(ctk.CTk):
             "window_height": self.winfo_height(),
         })
         save_config(self.cfg)
-
-        # Solicitar parada del bot si está en ejecución
-        if self.is_running:
-            self.stop_event.set()
 
         logger.info("Aplicación cerrada por el usuario.")
         self.destroy()

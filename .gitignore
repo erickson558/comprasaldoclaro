@@ -25,6 +25,7 @@ config.json
 # Log generado en tiempo de ejecución
 log.txt
 debug.log
+comprasclaro.txt
 
 # IDEs
 .vscode/

@@ -2,7 +2,7 @@
 
 > Automatización de compra de paquetes en **Mi Claro Guatemala** con interfaz gráfica moderna.
 
-[![Version](https://img.shields.io/badge/version-0.1.10-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
+[![Version](https://img.shields.io/badge/version-0.1.11-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://python.org)
 [![Build](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml/badge.svg)](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml)
@@ -131,6 +131,11 @@ La versión debe coincidir en: `version.py` → GUI → README → git tag → G
 ---
 
 ## Changelog
+
+### V0.1.11 — 2026-04-21
+- **fix:** Se agregan trazas `DEBUG` más finas en login, selección de línea, navegación del carrusel y compra para facilitar diagnóstico desde `log.txt`
+- **fix:** Cierre accidental protegido: si la automatización está corriendo, la GUI ahora pide confirmación y espera una detención limpia antes de cerrar
+- **fix:** `comprasclaro.txt` se ignora en Git como archivo local de referencia de Sentinel para evitar ruido en el repositorio
 
 ### V0.1.10 — 2026-04-21
 - **fix:** Flujo de compra actualizado a la grabación más reciente de Deploy Sentinel: `Gestiones → Compras → Paquetes y recargas`
