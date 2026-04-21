@@ -45,6 +45,62 @@ async def _try_selectors(page: Page, selectors: list[str], timeout: int = 3000) 
     return False
 
 
+async def _dismiss_modal(page: Page) -> None:
+    """
+    Cierra cualquier modal u overlay que pueda bloquear clics en la página.
+    El sitio muestra modales de renovación/notificaciones dentro de div#Modal
+    con clases .renovationFavoriteModal y .blur que interceptan eventos de puntero.
+    Se prueban varios métodos en orden: botón X interno, Escape, clic en blur,
+    y como último recurso ocultar via JavaScript (legítimo en contexto de automatización).
+    """
+    # Si no hay modal visible, no hacer nada
+    modal = page.locator("#Modal")
+    try:
+        visible = await modal.is_visible()
+    except Exception:
+        return
+
+    if not visible:
+        return
+
+    logger.debug("Modal detectado; intentando cerrarlo...")
+
+    # Intentar botón de cierre interno del modal (distintas convenciones de clase)
+    close_selectors = [
+        "#Modal .close",
+        "#Modal .btn-close",
+        "#Modal [aria-label='Close']",
+        "#Modal .ico-close",
+        "#Modal .modal-close",
+        ".renovationFavoriteModal .close",
+        ".renovationFavoriteModal button",
+    ]
+    for sel in close_selectors:
+        if await _safe_click(page, sel, timeout=1000):
+            logger.debug("Modal cerrado con selector: %s", sel)
+            await asyncio.sleep(0.3)
+            return
+
+    # Intentar tecla Escape
+    await page.keyboard.press("Escape")
+    await asyncio.sleep(0.4)
+
+    # Intentar clic directo en el overlay blur (a veces cierra el modal)
+    await _safe_click(page, "#Modal .blur", timeout=1000)
+    await _safe_click(page, ".Blurxx", timeout=1000)
+
+    # Último recurso: forzar ocultado por JavaScript.
+    # Aceptable en automatización porque controlamos el contexto del navegador.
+    await page.evaluate("""() => {
+        const modal = document.getElementById('Modal');
+        if (modal) modal.style.display = 'none';
+        document.querySelectorAll('.blur, .renovationFavoriteModal').forEach(el => {
+            el.style.display = 'none';
+        });
+    }""")
+    logger.debug("Modal ocultado via JavaScript como último recurso.")
+
+
 async def _safe_wait_networkidle(page: Page, timeout: int = 15000) -> None:
     """
     Espera a que la red esté inactiva ("networkidle").
@@ -240,12 +296,20 @@ async def run_automation(
 
             # ── 7. Abrir la vista de compra de paquetes ────────────────────
             _check_stop(stop_event)
+
+            # FIX V0.0.3: El sitio muestra un modal (#Modal / .renovationFavoriteModal /
+            # .blur) que bloquea el clic en "Comprar Paquete". Debe descartarse ANTES
+            # del clic, no después. El selector .Blurxx original era incorrecto;
+            # el overlay real es .blur dentro de #Modal.
+            notify("Cerrando modal o overlay antes de abrir compra...")
+            await _dismiss_modal(page)
+
             notify("Abriendo compra de paquetes...")
             await page.click(".boxConsume:nth-child(7) #compraPaquete > .textLink1:nth-child(2)")
             await _safe_wait_networkidle(page)
 
-            # Cerrar posible overlay borroso
-            await _safe_click(page, ".Blurxx")
+            # Cerrar cualquier modal que haya aparecido después de navegar a la sección
+            await _dismiss_modal(page)
 
             await page.mouse.wheel(0, 648)
             await page.mouse.wheel(0, -432)

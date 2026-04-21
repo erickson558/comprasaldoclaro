@@ -2,7 +2,7 @@
 
 > Automatización de compra de paquetes en **Mi Claro Guatemala** con interfaz gráfica moderna.
 
-[![Version](https://img.shields.io/badge/version-0.0.2-blue)](https://github.com/SynysterRick/comprasaldoclaro/releases)
+[![Version](https://img.shields.io/badge/version-0.0.3-blue)](https://github.com/SynysterRick/comprasaldoclaro/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://python.org)
 
