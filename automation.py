@@ -11,7 +11,7 @@ import logging
 import threading
 from typing import Callable, Optional
 
-from playwright.async_api import async_playwright, Page, BrowserContext
+from playwright.async_api import async_playwright, Page, BrowserContext, Locator
 
 logger = logging.getLogger("ComprasClaroApp")
 
@@ -75,6 +75,19 @@ async def _click_and_navigate(page: Page, selector: str, timeout: int = 20000) -
         await _safe_wait_networkidle(page)
 
 
+async def _click_locator_and_navigate(page: Page, locator: Locator, timeout: int = 20000) -> None:
+    """
+    Hace clic en un Locator y espera navegación si ocurre.
+    Si el sitio no navega de forma clásica (SPA/AJAX), cae a networkidle.
+    """
+    try:
+        async with page.expect_navigation(timeout=timeout):
+            await locator.click()
+    except Exception:
+        logger.debug("Sin navegación completa tras click en Locator; esperando networkidle.")
+        await _safe_wait_networkidle(page)
+
+
 async def _dismiss_modal(page: Page) -> None:
     """
     Cierra cualquier modal u overlay que bloquee clics en la página.
@@ -95,14 +108,21 @@ async def _dismiss_modal(page: Page) -> None:
       3. Tecla Escape
       4. Ocultar via JavaScript (display:none + pointerEvents:none)
     """
-    logger.debug("Intentando cerrar modal si existe...")
+    # Chequeo DOM — querySelector detecta el elemento aunque esté cubierto por
+    # el overlay (a diferencia de is_visible() que lee CSS). Si no hay modal en
+    # el DOM, retorna inmediatamente sin ningún efecto secundario en la página.
+    modal_present = await page.evaluate(
+        "() => !!document.querySelector('.btnBlancoRojo, #Modal, .renovationFavoriteModal')"
+    )
+    if not modal_present:
+        return
+
+    logger.debug("Modal detectado en DOM; intentando cerrarlo...")
 
     # ── Prioridad 1: JS click directo en .btnBlancoRojo ───────────────────────
-    # El botón "Aceptar" tiene HTML: <button class="btn btnBlancoRojo">Aceptar</button>
-    # El overlay .blur (z-index superior) bloquea page.click() normal porque
-    # Playwright verifica que el puntero no sea interceptado antes de hacer clic.
-    # element.click() desde JavaScript bypasea esa verificación y dispara el
-    # evento directamente sobre el elemento, ignorando z-index y pointer-events.
+    # El overlay .blur tiene z-index superior → page.click() falla porque
+    # Playwright verifica interceptación de puntero. element.click() en JS
+    # bypasea esa verificación y dispara el evento directo en el nodo DOM.
     clicked = await page.evaluate("""() => {
         const btn = document.querySelector('.btnBlancoRojo');
         if (btn) { btn.click(); return true; }
@@ -114,7 +134,6 @@ async def _dismiss_modal(page: Page) -> None:
         return
 
     # ── Prioridad 2: JS click en cualquier botón del modal por texto ──────────
-    # Misma estrategia — JS click para evitar bloqueo del overlay.
     clicked = await page.evaluate("""() => {
         const texts = ['Aceptar', 'Entendido', 'OK', 'Cerrar', 'Continuar'];
         const modal = document.getElementById('Modal');
@@ -132,14 +151,9 @@ async def _dismiss_modal(page: Page) -> None:
         await asyncio.sleep(0.5)
         return
 
-    # ── Prioridad 3: tecla Escape ─────────────────────────────────────────────
+    # ── Prioridad 3: Escape + JS hide (solo si el modal existe pero no respondió) ──
     await page.keyboard.press("Escape")
     await asyncio.sleep(0.4)
-
-    # ── Prioridad 6 (último recurso): ocultar via JavaScript ─────────────────
-    # Aceptable en automatización porque controlamos el contexto del navegador.
-    # Se usan display:none + visibility:hidden + pointerEvents:none para garantizar
-    # que el overlay no intercepte eventos de puntero aunque el CSS lo fuerce visible.
     await page.evaluate("""() => {
         const hide = (el) => {
             el.style.display = 'none';
@@ -270,28 +284,24 @@ async def run_automation(
 
             await _safe_wait_networkidle(page)
 
-            # ── 3. Descartar modal post-login ANTES de cualquier navegación ──
-            # El modal "¡Hola XXX, ya puedes renovar!" (.blur / .renovationFavoriteModal)
-            # aparece inmediatamente tras el login y bloquea todos los clics del menú.
-            # Debe cerrarse AQUÍ, antes de intentar abrir Gestiones, no después.
-            _check_stop(stop_event)
-            notify("Verificando modal de renovación post-login...")
-            await _dismiss_modal(page)
-            # Pausa para garantizar que el modal termine su animación de cierre
-            await asyncio.sleep(0.5)
-
-            # ── 4. Navegar a Gestiones → Compras ──────────────────────────
+            # ── 3. Navegar a Gestiones → Compras ──────────────────────────
             # Flujo Sentinel: menú de escritorio "Gestiones" en lugar del menú móvil
             _check_stop(stop_event)
             notify("Abriendo menú Gestiones...")
             await page.click(".menu_header_gestiones > label")
 
-            # Segundo chequeo de modal: puede reaparecer al abrir el menú
-            await _dismiss_modal(page)
-
             notify("Seleccionando Compras en el menú...")
             await page.click(".hideOnDesk:nth-child(3) a")   # Enlace "Compras"
             await page.click(".selectedTitleOp")               # Confirmar selección
+
+            # Paso Sentinel: intentar "Aceptar" justo después de confirmar Compras.
+            # Si no está presente, no interrumpe el flujo.
+            await _safe_click(page, ".btnBlancoRojo", timeout=1500)
+
+            # Descartar modal de renovación — según Sentinel aparece exactamente
+            # tras la primera confirmación de Compras (.selectedTitleOp).
+            await _dismiss_modal(page)
+            await asyncio.sleep(0.3)
 
             # ── 5. Scroll y selección de número de teléfono ───────────────
             _check_stop(stop_event)
@@ -307,8 +317,7 @@ async def run_automation(
             phone_link = page.locator(".boxConsume p", has_text=phone_number)
             if await phone_link.count() > 0:
                 # Clic en el número por texto y esperar navegación con fallback SPA
-                await phone_link.first.click()
-                await _safe_wait_networkidle(page)
+                await _click_locator_and_navigate(page, phone_link.first, timeout=15000)
             else:
                 logger.warning("Número %s no encontrado por texto; usando posición.", phone_number)
                 await _click_and_navigate(page, ".boxConsume:nth-child(7) p:nth-child(1)", timeout=15000)
@@ -338,11 +347,7 @@ async def run_automation(
             await page.mouse.wheel(0, 216)
 
             # ── 8. Click en "Comprar Paquete" ─────────────────────────────
-            # Antes de hacer clic, descartar cualquier modal que esté activo.
             _check_stop(stop_event)
-            notify("Cerrando modal si está activo antes de abrir compra...")
-            await _dismiss_modal(page)
-
             notify("Abriendo vista de compra de paquetes...")
             await _click_and_navigate(
                 page,
@@ -350,9 +355,6 @@ async def run_automation(
                 timeout=20000,
             )
             await _safe_wait_networkidle(page)
-
-            # Descartar modal que pueda aparecer en la vista de compra
-            await _dismiss_modal(page)
 
             # ── 9. Scroll para mostrar el carrusel ────────────────────────
             _check_stop(stop_event)
@@ -403,6 +405,10 @@ async def run_automation(
                     f".slick-slide:nth-child({c3_slide}) .btn:nth-child(1)",
                     timeout=20000,
                 )
+            else:
+                # Cuando sí se encuentra el selector por fallback, aún podría existir
+                # navegación parcial o recarga AJAX; igual esperamos estabilidad.
+                await _safe_wait_networkidle(page)
             await _safe_wait_networkidle(page)
             await _safe_wait_networkidle(page)
 

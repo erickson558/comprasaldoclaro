@@ -10,7 +10,7 @@ echo  Compilando Compra Saldo Claro a .exe...
 echo ============================================================
 
 REM Verificar que PyInstaller esté instalado
-python -m pyinstaller --version >nul 2>&1
+pyinstaller --version >nul 2>&1
 if errorlevel 1 (
     echo ERROR: PyInstaller no está instalado.
     echo Instálalo con:  pip install pyinstaller
@@ -27,7 +27,7 @@ REM  --distpath .    : dejar el .exe en esta misma carpeta
 REM  --add-data      : incluir config.json y el ícono en el ejecutable
 REM Usar ruta absoluta del ícono para que PyInstaller lo encuentre
 REM aunque --specpath apunte a otra carpeta
-python -m pyinstaller ^
+pyinstaller ^
     --onefile ^
     --noconsole ^
     --icon="%~dp0Banking_00012_A_icon-icons.com_59833.ico" ^
