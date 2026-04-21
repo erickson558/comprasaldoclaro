@@ -5,7 +5,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Versión semántica: MAYOR.MENOR.PARCHE
-VERSION = "0.1.11"
+VERSION = "0.2.0"
 
 # Nombre visible de la aplicación
 APP_NAME = "Compra Saldo Claro"

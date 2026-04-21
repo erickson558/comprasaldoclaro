@@ -21,6 +21,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     # Pestañas de configuración
     "tab_credentials": {"es": "Credenciales",    "en": "Credentials"},
     "tab_automation":  {"es": "Automatización",  "en": "Automation"},
+    "tab_billing":     {"es": "Facturación",     "en": "Billing"},
     "tab_options":     {"es": "Opciones",         "en": "Options"},
 
     # Etiquetas de credenciales
@@ -45,6 +46,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "label_payment":   {"es": "Método de pago",  "en": "Payment method"},
     "payment_saldo":   {"es": "Saldo",           "en": "Balance"},
     "payment_tarjeta": {"es": "Tarjeta",         "en": "Card"},
+
+    # Facturación
+    "chk_billing_autofill": {"es": "Autocompletar formulario de factura", "en": "Autofill invoice form"},
+    "billing_help":         {"es": "Se usa cuando Mi Claro solicita datos para emitir la factura final.", "en": "Used when Mi Claro requests data to issue the final invoice."},
+    "label_billing_name":   {"es": "Nombre en factura", "en": "Invoice name"},
+    "label_billing_nit":    {"es": "NIT",               "en": "Tax ID"},
+    "label_billing_address": {"es": "Dirección de facturación", "en": "Billing address"},
+    "label_billing_email":  {"es": "Correo para factura", "en": "Invoice email"},
 
     # Opciones generales
     "chk_auto_start":    {"es": "Auto iniciar al abrir la app", "en": "Auto-start when app opens"},

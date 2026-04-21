@@ -198,10 +198,12 @@ class ClaroApp(ctk.CTk):
 
         t_creds = self._tabs.add(get_text("tab_credentials", lang))
         t_auto  = self._tabs.add(get_text("tab_automation",  lang))
+        t_bill  = self._tabs.add(get_text("tab_billing",     lang))
         t_opts  = self._tabs.add(get_text("tab_options",     lang))
 
         self._build_credentials_tab(t_creds, lang)
         self._build_automation_tab(t_auto,   lang)
+        self._build_billing_tab(t_bill,      lang)
         self._build_options_tab(t_opts,      lang)
 
         # Panel de log
@@ -431,6 +433,50 @@ class ClaroApp(ctk.CTk):
         )
         self._appear_menu.pack(fill="x", padx=14, pady=(4, 8))
 
+    # ── Pestaña 3: Facturación ───────────────────────────────────────────
+
+    def _build_billing_tab(self, parent: ctk.CTkFrame, lang: str) -> None:
+        """Campos para completar automáticamente el formulario de facturación."""
+
+        def row(text: str, pady_top: int = 10) -> None:
+            ctk.CTkLabel(parent, text=text, anchor="w").pack(fill="x", padx=12, pady=(pady_top, 2))
+
+        self._billing_autofill_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(
+            parent,
+            text=get_text("chk_billing_autofill", lang),
+            variable=self._billing_autofill_var,
+            command=self._autosave,
+        ).pack(anchor="w", padx=14, pady=(16, 6))
+
+        ctk.CTkLabel(
+            parent,
+            text=get_text("billing_help", lang),
+            wraplength=310,
+            justify="left",
+            text_color=("gray40", "gray65"),
+        ).pack(fill="x", padx=14, pady=(0, 8))
+
+        row(get_text("label_billing_name", lang), pady_top=8)
+        self._billing_name = ctk.CTkEntry(parent, placeholder_text="Consumidor Final", height=34)
+        self._billing_name.pack(fill="x", padx=12, pady=(0, 4))
+        self._billing_name.bind("<FocusOut>", lambda _e: self._autosave())
+
+        row(get_text("label_billing_nit", lang))
+        self._billing_nit = ctk.CTkEntry(parent, placeholder_text="CF o tu NIT", height=34)
+        self._billing_nit.pack(fill="x", padx=12, pady=(0, 4))
+        self._billing_nit.bind("<FocusOut>", lambda _e: self._autosave())
+
+        row(get_text("label_billing_address", lang))
+        self._billing_address = ctk.CTkEntry(parent, placeholder_text="Ciudad, zona, dirección", height=34)
+        self._billing_address.pack(fill="x", padx=12, pady=(0, 4))
+        self._billing_address.bind("<FocusOut>", lambda _e: self._autosave())
+
+        row(get_text("label_billing_email", lang))
+        self._billing_email = ctk.CTkEntry(parent, placeholder_text="factura@email.com", height=34)
+        self._billing_email.pack(fill="x", padx=12, pady=(0, 4))
+        self._billing_email.bind("<FocusOut>", lambda _e: self._autosave())
+
     # ── Panel de log ──────────────────────────────────────────────────────
 
     def _build_log_panel(self, lang: str) -> None:
@@ -480,6 +526,13 @@ class ClaroApp(ctk.CTk):
         # Método de pago
         self._payment_var.set(c.get("payment_method", "tarjeta"))
 
+        # Facturación
+        self._billing_autofill_var.set(c.get("billing_autofill", True))
+        self._billing_name.insert(0, c.get("billing_name", ""))
+        self._billing_nit.insert(0, c.get("billing_nit", ""))
+        self._billing_address.insert(0, c.get("billing_address", ""))
+        self._billing_email.insert(0, c.get("billing_email", ""))
+
         # Opciones
         self._auto_start_var.set(c.get("auto_start",    False))
         self._auto_close_var.set(c.get("auto_close",    False))
@@ -526,6 +579,12 @@ class ClaroApp(ctk.CTk):
             "carousel3_slide":       _int(self._c3_slide,  13),
             # Pago
             "payment_method": self._payment_var.get(),
+            # Facturación
+            "billing_autofill": self._billing_autofill_var.get(),
+            "billing_name":     self._billing_name.get(),
+            "billing_nit":      self._billing_nit.get(),
+            "billing_address":  self._billing_address.get(),
+            "billing_email":    self._billing_email.get(),
             # Opciones
             "auto_start":       self._auto_start_var.get(),
             "auto_close":       self._auto_close_var.get(),
@@ -579,6 +638,8 @@ class ClaroApp(ctk.CTk):
             auto_cfg = {k: self.cfg[k] for k in (
                 "email", "password", "phone_number",
                 "headless", "slow_mo",
+                "billing_autofill", "billing_name", "billing_nit",
+                "billing_address", "billing_email",
                 "carousel3_next_clicks", "carousel3_slide",
             ) if k in self.cfg}
 

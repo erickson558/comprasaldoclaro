@@ -44,6 +44,13 @@ DEFAULT_CONFIG: dict = {
     # Método de pago seleccionado
     "payment_method": "tarjeta",  # "saldo" o "tarjeta"
 
+    # Datos de facturación final (si el flujo los solicita)
+    "billing_autofill": True,      # Completar automáticamente el formulario
+    "billing_name": "",           # Nombre en factura
+    "billing_nit": "",            # NIT
+    "billing_address": "",        # Dirección de facturación
+    "billing_email": "",          # Correo para recibir factura
+
     # Comportamiento automático
     "auto_start": False,          # Iniciar automatización al abrir la app
     "auto_close": False,          # Cerrar la app al finalizar

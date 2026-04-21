@@ -2,7 +2,7 @@
 
 > Automatización de compra de paquetes en **Mi Claro Guatemala** con interfaz gráfica moderna.
 
-[![Version](https://img.shields.io/badge/version-0.1.11-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://python.org)
 [![Build](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml/badge.svg)](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml)
@@ -20,6 +20,7 @@ Automatiza el proceso completo de compra de paquetes de datos en el portal **Mi 
 - 🤖 **Automatización completa** del proceso de compra usando Playwright/Chromium
 - 🎨 **Interfaz moderna** con modo oscuro/claro (CustomTkinter)
 - ⚙️ **Totalmente configurable**: email, teléfono, carruseles de paquetes, método de pago
+- 🧾 **Formulario de facturación configurable** desde una pestaña adicional de la GUI
 - 💾 **Auto-guardado** de toda la configuración en `config.json`
 - ⏱️ **Auto-cierre** con countdown visible
 - 📋 **Log en tiempo real** con registro en `log.txt`
@@ -73,6 +74,10 @@ O hacer doble clic en `ComprasClaroGT.exe` si ya compilaste.
 | **Carrusel N / Clics Next** | Cuántas veces avanzar en ese carrusel |
 | **Carrusel N / Posición** | Índice del paquete a comprar (nth-child) |
 | **Método de pago** | Saldo o Tarjeta |
+| **Facturación / Nombre** | Nombre que se enviará en la factura |
+| **Facturación / NIT** | NIT o CF requerido por el formulario |
+| **Facturación / Dirección** | Dirección de facturación |
+| **Facturación / Correo** | Correo al que se enviará la factura |
 
 ---
 
@@ -131,6 +136,11 @@ La versión debe coincidir en: `version.py` → GUI → README → git tag → G
 ---
 
 ## Changelog
+
+### V0.2.0 — 2026-04-21
+- **feat:** Nueva pestaña de **Facturación** en la GUI para parametrizar nombre, NIT, dirección y correo de factura
+- **feat:** La automatización detecta el formulario de facturación final, completa los campos configurados y continúa el flujo automáticamente
+- **fix:** Si la compra redirige a facturación y faltan datos obligatorios, ahora se reporta un error claro en lugar de dejar el proceso pendiente
 
 ### V0.1.11 — 2026-04-21
 - **fix:** Se agregan trazas `DEBUG` más finas en login, selección de línea, navegación del carrusel y compra para facilitar diagnóstico desde `log.txt`

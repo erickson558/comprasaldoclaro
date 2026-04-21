@@ -202,6 +202,106 @@ async def _select_phone_line(page: Page, phone_number: str, timeout: int = 15000
     await _safe_wait_networkidle(page)
 
 
+async def _fill_first_visible(page: Page, selectors: list[str], value: str, timeout: int = 5000) -> bool:
+    """
+    Rellena el primer campo visible encontrado entre varios selectores.
+    Devuelve True si logró completar alguno.
+    """
+    for selector in selectors:
+        try:
+            await page.wait_for_selector(selector, state="visible", timeout=timeout)
+            await page.locator(selector).first.fill(value)
+            logger.debug("Campo completado con selector %s", selector)
+            return True
+        except Exception as exc:
+            logger.debug("No se pudo completar selector '%s': %s", selector, exc)
+    return False
+
+
+async def _complete_billing_form(page: Page, config: dict, notify: Callable[[str], None]) -> None:
+    """
+    Completa el formulario de facturación final si la compra redirige a esa vista.
+    El flujo debe seguir aunque la pantalla no aparezca.
+    """
+    autofill_enabled = bool(config.get("billing_autofill", True))
+    billing_name = str(config.get("billing_name", "")).strip()
+    billing_nit = str(config.get("billing_nit", "")).strip()
+    billing_address = str(config.get("billing_address", "")).strip()
+    billing_email = str(config.get("billing_email", "")).strip() or str(config.get("email", "")).strip()
+
+    form_visible = await _is_selector_visible(page, "input[placeholder*='nombre'], input[placeholder*='NIT'], input[placeholder*='correo']", timeout=5000)
+    if not form_visible:
+        logger.debug("Formulario de facturación no detectado; continuando flujo normal.")
+        return
+
+    notify("Formulario de facturación detectado; completando datos...")
+
+    if not autofill_enabled:
+        raise RuntimeError(
+            "Se detectó el formulario de facturación, pero el autocompletado está desactivado en la GUI."
+        )
+
+    if not billing_name or not billing_nit:
+        raise RuntimeError(
+            "Faltan datos obligatorios de facturación (Nombre y NIT) para continuar la compra."
+        )
+
+    # Seleccionar la opción de factura por correo si aparece visible.
+    invoice_option_selectors = [
+        "label:has-text('Deseo recibir mi factura por correo electrónico')",
+        "input[type='radio'][value='correo']",
+    ]
+    await _try_selectors(page, invoice_option_selectors, timeout=1500)
+
+    filled_name = await _fill_first_visible(
+        page,
+        ["input[placeholder*='nombre']", "input[name*='nombre']", "input[id*='nombre']"],
+        billing_name,
+    )
+    filled_nit = await _fill_first_visible(
+        page,
+        ["input[placeholder*='NIT']", "input[placeholder*='nit']", "input[name*='nit']", "input[id*='nit']"],
+        billing_nit,
+    )
+    filled_address = await _fill_first_visible(
+        page,
+        ["input[placeholder*='dirección']", "input[placeholder*='direccion']", "input[name*='direccion']", "input[id*='direccion']"],
+        billing_address or "Ciudad de Guatemala",
+    )
+    filled_email = await _fill_first_visible(
+        page,
+        ["input[placeholder*='correo']", "input[name*='correo']", "input[id*='correo']"],
+        billing_email,
+    )
+
+    if not (filled_name and filled_nit):
+        raise RuntimeError(
+            "No se pudieron ubicar los campos obligatorios del formulario de facturación."
+        )
+
+    logger.debug(
+        "Formulario de facturación completado. name=%s nit=%s address=%s email=%s",
+        filled_name,
+        filled_nit,
+        filled_address,
+        filled_email,
+    )
+
+    await asyncio.sleep(0.5)
+
+    continue_selectors = [
+        "button:has-text('Continuar')",
+        "input[value='Continuar']",
+        ".btn:has-text('Continuar')",
+    ]
+    notify("Enviando formulario de facturación...")
+    clicked_continue = await _try_selectors(page, continue_selectors, timeout=8000)
+    if not clicked_continue:
+        raise RuntimeError("No se encontró el botón 'Continuar' del formulario de facturación.")
+
+    await _safe_wait_networkidle(page)
+
+
 async def _dismiss_modal(page: Page) -> None:
     """
     Cierra cualquier modal u overlay que bloquee clics en la página.
@@ -530,7 +630,11 @@ async def run_automation(
             await _safe_wait_networkidle(page)
             await _safe_wait_networkidle(page)
 
-            # ── 7. Scrolls finales (igual que Sentinel actualizado) ────────
+            # ── 7. Completar formulario de facturación si aparece ──────────
+            _check_stop(stop_event)
+            await _complete_billing_form(page, config, notify)
+
+            # ── 8. Scrolls finales (igual que Sentinel actualizado) ────────
             await page.mouse.wheel(0, 432)
             await page.mouse.wheel(0, -324)
 
