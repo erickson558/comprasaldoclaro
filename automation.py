@@ -154,12 +154,17 @@ async def _dismiss_modal(page: Page) -> None:
 
     # ── Prioridad 6 (último recurso): ocultar via JavaScript ─────────────────
     # Aceptable en automatización porque controlamos el contexto del navegador.
+    # Se usan display:none + visibility:hidden + pointerEvents:none para garantizar
+    # que el overlay no intercepte eventos de puntero aunque el CSS lo fuerce visible.
     await page.evaluate("""() => {
-        const modal = document.getElementById('Modal');
-        if (modal) modal.style.display = 'none';
-        document.querySelectorAll('.blur, .renovationFavoriteModal').forEach(el => {
+        const hide = (el) => {
             el.style.display = 'none';
-        });
+            el.style.visibility = 'hidden';
+            el.style.pointerEvents = 'none';
+        };
+        const modal = document.getElementById('Modal');
+        if (modal) hide(modal);
+        document.querySelectorAll('.blur, .renovationFavoriteModal').forEach(hide);
     }""")
     logger.debug("Modal ocultado via JavaScript como último recurso.")
 
@@ -281,23 +286,28 @@ async def run_automation(
 
             await _safe_wait_networkidle(page)
 
-            # ── 3. Navegar a Gestiones → Compras ──────────────────────────
+            # ── 3. Descartar modal post-login ANTES de cualquier navegación ──
+            # El modal "¡Hola XXX, ya puedes renovar!" (.blur / .renovationFavoriteModal)
+            # aparece inmediatamente tras el login y bloquea todos los clics del menú.
+            # Debe cerrarse AQUÍ, antes de intentar abrir Gestiones, no después.
+            _check_stop(stop_event)
+            notify("Verificando modal de renovación post-login...")
+            await _dismiss_modal(page)
+            # Pausa para garantizar que el modal termine su animación de cierre
+            await asyncio.sleep(0.5)
+
+            # ── 4. Navegar a Gestiones → Compras ──────────────────────────
             # Flujo Sentinel: menú de escritorio "Gestiones" en lugar del menú móvil
             _check_stop(stop_event)
             notify("Abriendo menú Gestiones...")
             await page.click(".menu_header_gestiones > label")
 
+            # Segundo chequeo de modal: puede reaparecer al abrir el menú
+            await _dismiss_modal(page)
+
             notify("Seleccionando Compras en el menú...")
             await page.click(".hideOnDesk:nth-child(3) a")   # Enlace "Compras"
             await page.click(".selectedTitleOp")               # Confirmar selección
-
-            # ── 4. Aceptar modal de renovación ────────────────────────────
-            # El sitio muestra aleatoriamente un modal "¡Hola XXX, ya puedes renovar!"
-            # con botón .btnBlancoRojo (Aceptar). _dismiss_modal lo maneja con
-            # 6 niveles de fallback.
-            _check_stop(stop_event)
-            notify("Verificando modal de renovación...")
-            await _dismiss_modal(page)
 
             # ── 5. Scroll y selección de número de teléfono ───────────────
             _check_stop(stop_event)
