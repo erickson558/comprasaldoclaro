@@ -2,7 +2,7 @@
 
 > Automatización de compra de paquetes en **Mi Claro Guatemala** con interfaz gráfica moderna.
 
-[![Version](https://img.shields.io/badge/version-0.1.3-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
+[![Version](https://img.shields.io/badge/version-0.1.4-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://python.org)
 [![Build](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml/badge.svg)](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml)
@@ -131,6 +131,9 @@ La versión debe coincidir en: `version.py` → GUI → README → git tag → G
 ---
 
 ## Changelog
+
+### V0.1.4 — 2026-04-20
+- **fix:** `_dismiss_modal` elimina pre-chequeo `#Modal.is_visible()` — Playwright podía considerar el modal no visible durante animaciones CSS aunque el botón `.btnBlancoRojo` estuviese presente en el DOM; ahora el JS evaluate se ejecuta siempre, sin guardia de visibilidad
 
 ### V0.1.3 — 2026-04-20
 - **fix:** `_dismiss_modal` usa `element.click()` desde JavaScript para el botón `.btnBlancoRojo` — bypasea el overlay `.blur` (z-index superior) que bloqueaba `page.click()` normal de Playwright

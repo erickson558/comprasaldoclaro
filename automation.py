@@ -95,17 +95,7 @@ async def _dismiss_modal(page: Page) -> None:
       3. Tecla Escape
       4. Ocultar via JavaScript (display:none + pointerEvents:none)
     """
-    # Verificar si el modal es visible antes de intentar cerrarlo
-    modal = page.locator("#Modal")
-    try:
-        visible = await modal.is_visible()
-    except Exception:
-        return
-
-    if not visible:
-        return
-
-    logger.debug("Modal detectado; intentando cerrarlo...")
+    logger.debug("Intentando cerrar modal si existe...")
 
     # ── Prioridad 1: JS click directo en .btnBlancoRojo ───────────────────────
     # El botón "Aceptar" tiene HTML: <button class="btn btnBlancoRojo">Aceptar</button>
