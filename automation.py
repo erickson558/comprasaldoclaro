@@ -59,6 +59,17 @@ async def _safe_wait_networkidle(page: Page, timeout: int = 15000) -> None:
         logger.debug("networkidle no alcanzado en %dms; continuando.", timeout)
 
 
+async def _is_selector_visible(page: Page, selector: str, timeout: int = 2500) -> bool:
+    """
+    Verifica visibilidad de un selector sin romper el flujo si no aparece.
+    """
+    try:
+        await page.wait_for_selector(selector, state="visible", timeout=timeout)
+        return True
+    except Exception:
+        return False
+
+
 def _is_execution_context_destroyed(exc: Exception) -> bool:
     """
     Detecta errores transitorios de Playwright cuando la página navega y el
@@ -337,7 +348,7 @@ async def run_automation(
 
             # Detectar si el usuario ya está logueado (sesión activa en el navegador).
             # Si el menú de Gestiones ya es visible, no es necesario ingresar credenciales.
-            already_logged = await page.locator(".menu_header_gestiones").is_visible()
+            already_logged = await _is_selector_visible(page, ".menu_header_gestiones", timeout=2500)
 
             if already_logged:
                 notify("Sesión activa detectada; omitiendo login...")
@@ -362,10 +373,40 @@ async def run_automation(
                     except Exception as e:
                         logger.warning("No se pudo llenar la contraseña: %s", e)
 
-                # Click en el botón de login — usa _click_and_navigate para manejar
-                # tanto navegación completa como redirección SPA
+                # Click en el botón de login.
+                # Primero intenta el selector exacto de Sentinel (.btnPrimario).
+                # Si el sitio cambia ligeramente el DOM, usa fallbacks compatibles.
                 notify("Enviando formulario de login...")
-                await _click_and_navigate(page, ".btnPrimario", timeout=15000)
+                login_submit_selectors = [
+                    ".btnPrimario",              # Selector principal Sentinel
+                    "button.btnPrimario",        # Variante común en botón
+                    "button[type='submit']",     # Fallback HTML estándar
+                    "input[type='submit']",      # Fallback HTML estándar
+                ]
+
+                submitted = False
+                for sel in login_submit_selectors:
+                    try:
+                        if await page.locator(sel).count() == 0:
+                            continue
+                        await _click_and_navigate(page, sel, timeout=15000)
+                        submitted = True
+                        break
+                    except Exception as exc:
+                        logger.debug("Falló envío de login con '%s': %s", sel, exc)
+                        await _dismiss_modal(page)
+
+                if not submitted:
+                    # Verificación final: algunos escenarios redirigen automáticamente
+                    # y ocultan el botón de login aunque la sesión ya esté activa.
+                    await _safe_wait_networkidle(page, timeout=5000)
+                    if await _is_selector_visible(page, ".menu_header_gestiones", timeout=2500):
+                        notify("Sesión activa detectada tras validar envío de login; continuando...")
+                    else:
+                        raise RuntimeError(
+                            "No se encontró botón de login (.btnPrimario) ni alternativas. "
+                            "Valida si Mi Claro cambió el formulario de acceso."
+                        )
 
             await _safe_wait_networkidle(page)
 
