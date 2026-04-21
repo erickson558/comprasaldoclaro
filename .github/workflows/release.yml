@@ -1,0 +1,109 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# release.yml  –  GitHub Actions: build + release automático
+# Se dispara en cada push a la rama main.
+# Lee la versión desde version.py, compila el .exe con PyInstaller y
+# crea un GitHub Release con el ejecutable adjunto.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write   # Necesario para crear releases y tags
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest   # Compilar en Windows para obtener un .exe nativo
+
+    steps:
+      # 1. Obtener el código fuente
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      # 2. Configurar Python
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 3. Instalar dependencias del proyecto
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      # 4. Instalar el navegador Chromium de Playwright
+      - name: Instalar Chromium (Playwright)
+        run: playwright install chromium
+
+      # 5. Leer la versión desde version.py para usarla en el tag y el release
+      - name: Leer versión
+        id: version
+        shell: python
+        run: |
+          import subprocess, sys
+          # Importar version.py y escribir la versión en GITHUB_OUTPUT
+          sys.path.insert(0, ".")
+          from version import VERSION
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"ver={VERSION}\n")
+          print(f"Versión detectada: {VERSION}")
+
+      # 6. Compilar a .exe con PyInstaller
+      - name: Compilar .exe
+        run: |
+          python -m pyinstaller `
+            --onefile `
+            --noconsole `
+            --icon="Banking_00012_A_icon-icons.com_59833.ico" `
+            --name="ComprasClaroGT" `
+            --distpath="." `
+            --workpath="build_tmp" `
+            --specpath="build_tmp" `
+            --add-data="Banking_00012_A_icon-icons.com_59833.ico;." `
+            main.py
+
+      # 7. Verificar que el .exe fue creado
+      - name: Verificar ejecutable
+        run: |
+          if (Test-Path "ComprasClaroGT.exe") {
+            Write-Host "OK: ComprasClaroGT.exe existe"
+            (Get-Item "ComprasClaroGT.exe").length
+          } else {
+            Write-Error "ERROR: ComprasClaroGT.exe no fue creado"
+            exit 1
+          }
+
+      # 8. Crear tag de versión (si no existe ya)
+      - name: Crear tag v${{ steps.version.outputs.ver }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ steps.version.outputs.ver }}" -m "Release v${{ steps.version.outputs.ver }}" || echo "Tag ya existe"
+          git push origin "v${{ steps.version.outputs.ver }}" || echo "Tag ya publicado"
+
+      # 9. Crear el GitHub Release y adjuntar el .exe
+      - name: Crear GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.ver }}
+          name: "Compra Saldo Claro GT  v${{ steps.version.outputs.ver }}"
+          body: |
+            ## Compra Saldo Claro GT  v${{ steps.version.outputs.ver }}
+
+            Automatización de compra de paquetes en Mi Claro Guatemala.
+
+            ### Instalación
+            1. Descarga `ComprasClaroGT.exe`
+            2. Colócalo en una carpeta
+            3. Ejecuta y configura tu email y número
+
+            > **Nota:** Al ser el primer uso, Windows puede mostrar una advertencia SmartScreen.
+            > Haz clic en "Más información" → "Ejecutar de todas formas".
+          files: ComprasClaroGT.exe
+          draft: false
+          prerelease: false

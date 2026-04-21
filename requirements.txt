@@ -1,0 +1,14 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# requirements.txt  –  Dependencias de Compra Saldo Claro
+# Instalar con:  pip install -r requirements.txt
+# Luego:         playwright install chromium
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Interfaz gráfica moderna (tema dark/light + widgets customizados)
+customtkinter>=5.2.2
+
+# Automatización de navegador web (Chromium)
+playwright>=1.44.0
+
+# pyinstaller se usa solo para compilar el .exe (no es necesario en ejecución)
+# pyinstaller>=6.0.0

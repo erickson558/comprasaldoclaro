@@ -1,0 +1,37 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# .gitignore  –  Archivos a excluir del repositorio Git
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Entornos virtuales de Python
+venv/
+.venv/
+env/
+.env/
+
+# Caché de Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Archivos de compilación de PyInstaller
+*.spec
+build_tmp/
+dist/
+*.exe
+
+# Configuración local del usuario (puede contener credenciales)
+config.json
+
+# Log generado en tiempo de ejecución
+log.txt
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
