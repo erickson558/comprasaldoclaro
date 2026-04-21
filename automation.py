@@ -59,6 +59,45 @@ async def _safe_wait_networkidle(page: Page, timeout: int = 15000) -> None:
         logger.debug("networkidle no alcanzado en %dms; continuando.", timeout)
 
 
+def _is_execution_context_destroyed(exc: Exception) -> bool:
+    """
+    Detecta errores transitorios de Playwright cuando la página navega y el
+    contexto JavaScript se reinicia.
+    """
+    msg = str(exc)
+    return (
+        "Execution context was destroyed" in msg
+        or "Cannot find context with specified id" in msg
+    )
+
+
+async def _safe_page_evaluate(page: Page, script: str, retries: int = 1):
+    """
+    Ejecuta page.evaluate con reintento cuando hay navegación en curso.
+    Si el contexto sigue inestable tras los reintentos, devuelve None para que
+    el llamador continúe sin romper el flujo.
+    """
+    for attempt in range(retries + 1):
+        try:
+            return await page.evaluate(script)
+        except Exception as exc:
+            if not _is_execution_context_destroyed(exc):
+                raise
+
+            if attempt < retries:
+                logger.debug(
+                    "Execution context destruido durante evaluate; reintentando (%d/%d).",
+                    attempt + 1,
+                    retries,
+                )
+                await asyncio.sleep(0.25)
+                await _safe_wait_networkidle(page, timeout=5000)
+                continue
+
+            logger.debug("Se omite evaluate por navegación en curso: %s", exc)
+            return None
+
+
 async def _click_and_navigate(page: Page, selector: str, timeout: int = 20000) -> None:
     """
     Hace clic en un selector y espera que el navegador complete la navegación.
@@ -142,9 +181,14 @@ async def _dismiss_modal(page: Page) -> None:
     # Chequeo DOM — querySelector detecta el elemento aunque esté cubierto por
     # el overlay (a diferencia de is_visible() que lee CSS). Si no hay modal en
     # el DOM, retorna inmediatamente sin ningún efecto secundario en la página.
-    modal_present = await page.evaluate(
+    modal_present = await _safe_page_evaluate(
+        page,
         "() => !!document.querySelector('.btnBlancoRojo, #Modal, .renovationFavoriteModal')"
     )
+    # Si no se pudo evaluar por navegación transitoria, no romper el flujo.
+    if modal_present is None:
+        return
+
     if not modal_present:
         return
 
@@ -154,18 +198,21 @@ async def _dismiss_modal(page: Page) -> None:
     # El overlay .blur tiene z-index superior → page.click() falla porque
     # Playwright verifica interceptación de puntero. element.click() en JS
     # bypasea esa verificación y dispara el evento directo en el nodo DOM.
-    clicked = await page.evaluate("""() => {
+    clicked = await _safe_page_evaluate(page, """() => {
         const btn = document.querySelector('.btnBlancoRojo');
         if (btn) { btn.click(); return true; }
         return false;
     }""")
+    if clicked is None:
+        return
+
     if clicked:
         logger.debug("Modal cerrado con JS click en .btnBlancoRojo")
         await asyncio.sleep(0.5)
         return
 
     # ── Prioridad 2: JS click en cualquier botón del modal por texto ──────────
-    clicked = await page.evaluate("""() => {
+    clicked = await _safe_page_evaluate(page, """() => {
         const texts = ['Aceptar', 'Entendido', 'OK', 'Cerrar', 'Continuar'];
         const modal = document.getElementById('Modal');
         if (!modal) return false;
@@ -177,6 +224,9 @@ async def _dismiss_modal(page: Page) -> None:
         }
         return false;
     }""")
+    if clicked is None:
+        return
+
     if clicked:
         logger.debug("Modal cerrado con JS click por texto")
         await asyncio.sleep(0.5)
@@ -185,7 +235,7 @@ async def _dismiss_modal(page: Page) -> None:
     # ── Prioridad 3: Escape + JS hide (solo si el modal existe pero no respondió) ──
     await page.keyboard.press("Escape")
     await asyncio.sleep(0.4)
-    await page.evaluate("""() => {
+    hidden = await _safe_page_evaluate(page, """() => {
         const hide = (el) => {
             el.style.display = 'none';
             el.style.visibility = 'hidden';
@@ -194,7 +244,11 @@ async def _dismiss_modal(page: Page) -> None:
         const modal = document.getElementById('Modal');
         if (modal) hide(modal);
         document.querySelectorAll('.blur, .renovationFavoriteModal').forEach(hide);
+        return true;
     }""")
+    if hidden is None:
+        return
+
     logger.debug("Modal ocultado via JavaScript como último recurso.")
 
 

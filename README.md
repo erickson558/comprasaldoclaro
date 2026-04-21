@@ -2,7 +2,7 @@
 
 > Automatización de compra de paquetes en **Mi Claro Guatemala** con interfaz gráfica moderna.
 
-[![Version](https://img.shields.io/badge/version-0.1.7-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
+[![Version](https://img.shields.io/badge/version-0.1.8-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://python.org)
 [![Build](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml/badge.svg)](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml)
@@ -131,6 +131,10 @@ La versión debe coincidir en: `version.py` → GUI → README → git tag → G
 ---
 
 ## Changelog
+
+### V0.1.8 — 2026-04-21
+- **fix:** `_dismiss_modal` ahora usa `page.evaluate` seguro con reintento ante `Execution context was destroyed` durante navegación, evitando crash del flujo por contexto JS transitorio
+- **fix:** Si el contexto sigue inestable tras reintento, el descarte de modal se omite de forma controlada (`return`) para no romper la automatización
 
 ### V0.1.7 — 2026-04-21
 - **fix:** Restaurado descarte preventivo de modal inmediatamente después de login/sesión activa para evitar bloqueo del menú `Gestiones` por overlay intermitente
