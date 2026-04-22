@@ -96,6 +96,16 @@ def _install_local_chromium(notify: Callable[[str], None]) -> bool:
         ["py", "-m", "playwright", "install", "chromium"],
     ])
 
+    # Ejecutar instalación en modo silencioso en Windows para que no aparezca CMD.
+    # En otros sistemas, subprocess ignora estos parámetros sin afectar compatibilidad.
+    startupinfo = None
+    creationflags = 0
+    if os.name == "nt":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
     for cmd in commands:
         try:
             completed = subprocess.run(
@@ -104,6 +114,8 @@ def _install_local_chromium(notify: Callable[[str], None]) -> bool:
                 check=True,
                 capture_output=True,
                 text=True,
+                startupinfo=startupinfo,
+                creationflags=creationflags,
             )
             if completed.stdout:
                 logger.debug("Salida instalación Chromium (%s): %s", cmd[0], completed.stdout.strip())

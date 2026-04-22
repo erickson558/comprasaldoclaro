@@ -55,6 +55,12 @@ class ClaroApp(ctk.CTk):
         self._countdown_value: int = 0
         self._pending_close: bool = False   # Cierre diferido mientras el bot se detiene
 
+        # Guardas para evitar bucles de callbacks al reconstruir/cargar UI.
+        # Sin estas banderas, set() de OptionMenu puede disparar command()
+        # y provocar reconstrucciones repetidas con parpadeo/transparencia.
+        self._suppress_ui_callbacks: bool = False
+        self._is_rebuilding_ui: bool = False
+
         # Aplicar tema antes de construir cualquier widget
         ctk.set_appearance_mode(self.cfg.get("appearance_mode", "dark"))
         ctk.set_default_color_theme("blue")
@@ -604,6 +610,9 @@ class ClaroApp(ctk.CTk):
         c = self.cfg
         lang = c.get("language", "es")
 
+        # Evitar callbacks de OptionMenu durante carga programática de valores.
+        self._suppress_ui_callbacks = True
+
         # Credenciales
         self._email.insert(0,    c.get("email", ""))
         self._password.insert(0, c.get("password", ""))
@@ -652,6 +661,8 @@ class ClaroApp(ctk.CTk):
         ]
         idx = mode_idx.get(c.get("appearance_mode", "dark"), 0)
         self._appear_menu.set(appear_values[idx])
+
+        self._suppress_ui_callbacks = False
 
     # ── Autoguardado ──────────────────────────────────────────────────────
 
@@ -938,12 +949,20 @@ class ClaroApp(ctk.CTk):
 
     def _change_language(self, lang_code: str) -> None:
         """Guarda el idioma y reconstruye la UI en vivo (sin reinicio)."""
+        # Evitar reconstrucciones innecesarias o recursivas.
+        if self._is_rebuilding_ui:
+            return
+        if self.cfg.get("language", "es") == lang_code:
+            return
+
         self.cfg["language"] = lang_code
         save_config(self.cfg)
         self._rebuild_ui()
 
     def _on_language_change(self, value: str) -> None:
         """Callback del selector de idioma en la pestaña Opciones."""
+        if self._suppress_ui_callbacks or self._is_rebuilding_ui:
+            return
         reverse = {v: k for k, v in LANGUAGES.items()}
         self._change_language(reverse.get(value, "es"))
 
@@ -957,6 +976,11 @@ class ClaroApp(ctk.CTk):
         Preserva estado de automatización si estaba corriendo.
         Permite cambiar idioma en vivo sin reiniciar la aplicación.
         """
+        # Evitar reentrancia si un callback intenta reconstruir de nuevo.
+        if self._is_rebuilding_ui:
+            return
+        self._is_rebuilding_ui = True
+
         # Detener countdown para evitar callbacks a widgets que serán destruidos
         self._countdown_active = False
 
@@ -982,22 +1006,25 @@ class ClaroApp(ctk.CTk):
         lang = self.cfg.get("language", "es")
         self.title(f"{get_text('app_title', lang)}  ·  v{VERSION}")
 
-        # Reconstruir menubar y contenido completo
-        self._create_menubar()
-        self._create_widgets()
-        self._load_config_into_ui()
+        try:
+            # Reconstruir menubar y contenido completo
+            self._create_menubar()
+            self._create_widgets()
+            self._load_config_into_ui()
 
-        # Restaurar estado visual si la automatización seguía corriendo
-        if was_running:
-            self.btn_start.configure(state="disabled")
-            self.btn_stop.configure(state="normal")
-            self.btn_pause.configure(state="normal")
-            if is_paused:
-                lang = self.cfg.get("language", "es")
-                self.btn_pause.configure(
-                    text=f"▶  {get_text('btn_resume', lang)}  (F7)",
-                    fg_color="#1f6aa5", hover_color="#1a5a8a",
-                )
+            # Restaurar estado visual si la automatización seguía corriendo
+            if was_running:
+                self.btn_start.configure(state="disabled")
+                self.btn_stop.configure(state="normal")
+                self.btn_pause.configure(state="normal")
+                if is_paused:
+                    lang = self.cfg.get("language", "es")
+                    self.btn_pause.configure(
+                        text=f"▶  {get_text('btn_resume', lang)}  (F7)",
+                        fg_color="#1f6aa5", hover_color="#1a5a8a",
+                    )
+        finally:
+            self._is_rebuilding_ui = False
 
     def _change_appearance(self, mode: str) -> None:
         """Aplica el modo de apariencia y lo guarda."""
@@ -1007,6 +1034,8 @@ class ClaroApp(ctk.CTk):
 
     def _on_appearance_change(self, value: str) -> None:
         """Callback del menú desplegable de apariencia."""
+        if self._suppress_ui_callbacks or self._is_rebuilding_ui:
+            return
         lang = self.cfg.get("language", "es")
         reverse = {
             get_text("appearance_dark",   lang): "dark",

@@ -2,7 +2,7 @@
 
 > Automatización de compra de paquetes en **Mi Claro Guatemala** con interfaz gráfica moderna.
 
-[![Version](https://img.shields.io/badge/version-0.7.2-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
+[![Version](https://img.shields.io/badge/version-0.7.3-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://python.org)
 [![Build](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml/badge.svg)](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml)
@@ -139,6 +139,11 @@ La versión debe coincidir en: `version.py` → GUI → README → git tag → G
 ---
 
 ## Changelog
+
+### V0.7.3 — 2026-04-22
+- **fix:** Corregido bucle de callbacks en la GUI al cargar/reconstruir OptionMenus (idioma/apariencia), reduciendo parpadeo y estados intermitentes de transparencia
+- **fix:** Se evita reconstrucción de UI redundante cuando el idioma seleccionado ya es el actual
+- **fix:** Descarga automática de Chromium en Windows ahora se ejecuta en modo silencioso (`CREATE_NO_WINDOW`) sin mostrar ventana CMD
 
 ### V0.7.2 — 2026-04-22
 - **fix:** Corregido bucle de reapertura en `.exe` al faltar Chromium; ya no se ejecuta `sys.executable -m playwright` en modo compilado
