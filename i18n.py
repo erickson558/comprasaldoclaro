@@ -96,6 +96,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "menu_appearance":      {"es": "Apariencia",  "en": "Appearance"},
     "menu_help":            {"es": "Ayuda",       "en": "Help"},
     "menu_help_about":      {"es": "Acerca de",   "en": "About"},
+    "menu_help_donate":     {"es": "☕  Invítame una cerveza (PayPal)", "en": "☕  Buy me a beer (PayPal)"},
+
+    # Donaciones
+    "btn_donate":       {"es": "☕  Invítame una cerveza",  "en": "☕  Buy me a beer"},
+    "donate_tooltip":   {"es": "Apoya el proyecto vía PayPal", "en": "Support the project via PayPal"},
+
+    # Idioma
+    "label_language":   {"es": "Idioma de la interfaz", "en": "Interface language"},
 
     # Diálogo About
     "about_title": {"es": "Acerca de la aplicación", "en": "About this application"},

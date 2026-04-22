@@ -12,7 +12,11 @@ import os
 import queue
 import sys
 import threading
+import webbrowser
 from typing import Optional
+
+# URL de donación — se abre en el navegador predeterminado
+DONATE_URL = "https://www.paypal.com/donate/?hosted_button_id=ZABFRXC2P3JQN"
 
 import customtkinter as ctk
 import tkinter as tk
@@ -158,6 +162,8 @@ class ClaroApp(ctk.CTk):
         m_help = tk.Menu(bar, **menu_cfg)
         bar.add_cascade(label=get_text("menu_help", lang), menu=m_help)
         m_help.add_command(label=f"{get_text('menu_help_about', lang)} (Alt+Enter)", command=self._show_about)
+        m_help.add_separator()
+        m_help.add_command(label=get_text("menu_help_donate", lang), command=self._open_donate)
 
     # ── Widgets ───────────────────────────────────────────────────────────
 
@@ -255,6 +261,16 @@ class ClaroApp(ctk.CTk):
             fg_color=("gray55", "gray35"), hover_color=("gray45", "gray25"),
             command=self._on_close,
         ).pack(side="right", padx=10, pady=8)
+
+        # Botón de donación visible en la barra de acciones
+        ctk.CTkButton(
+            btn_bar,
+            text=get_text("btn_donate", lang),
+            font=ctk.CTkFont(size=12, weight="bold"),
+            width=165, height=38,
+            fg_color="#c07800", hover_color="#9a5e00",
+            command=self._open_donate,
+        ).pack(side="right", padx=4, pady=8)
 
         # ── Barra de estado ───────────────────────────────────────────────
         status_bar = ctk.CTkFrame(self, height=26, corner_radius=0,
@@ -449,7 +465,20 @@ class ClaroApp(ctk.CTk):
     # ── Pestaña 3: Opciones ───────────────────────────────────────────────
 
     def _build_options_tab(self, parent: ctk.CTkFrame, lang: str) -> None:
-        """Auto-inicio, auto-cierre, tiempo de cierre y apariencia."""
+        """Auto-inicio, auto-cierre, tiempo de cierre, idioma y apariencia."""
+
+        # ── Selector de idioma (aplicación inmediata sin reinicio) ───────────
+        ctk.CTkLabel(parent, text=get_text("label_language", lang),
+                     anchor="w").pack(fill="x", padx=14, pady=(16, 4))
+        lang_values = list(LANGUAGES.values())
+        self._language_menu = ctk.CTkOptionMenu(
+            parent, values=lang_values,
+            command=self._on_language_change,
+        )
+        self._language_menu.pack(fill="x", padx=14, pady=(0, 6))
+
+        # Separador visual
+        ctk.CTkFrame(parent, height=1, fg_color=("gray65", "gray30")).pack(fill="x", padx=10, pady=8)
 
         self._auto_start_var = ctk.BooleanVar(value=False)
         ctk.CTkCheckBox(
@@ -604,6 +633,10 @@ class ClaroApp(ctk.CTk):
         self._auto_start_var.set(c.get("auto_start",    False))
         self._auto_close_var.set(c.get("auto_close",    False))
         self._delay_var.set(str( c.get("auto_close_delay", 60)))
+
+        # Idioma (selector en pestaña Opciones)
+        current_lang = c.get("language", "es")
+        self._language_menu.set(LANGUAGES.get(current_lang, LANGUAGES["es"]))
 
         # Apariencia
         mode_idx = {"dark": 0, "light": 1, "system": 2}
@@ -886,12 +919,66 @@ class ClaroApp(ctk.CTk):
             self._show_btn.configure(text="👁")
 
     def _change_language(self, lang_code: str) -> None:
-        """Guarda el idioma y notifica que se requiere reiniciar para aplicarlo."""
+        """Guarda el idioma y reconstruye la UI en vivo (sin reinicio)."""
         self.cfg["language"] = lang_code
         save_config(self.cfg)
-        name = LANGUAGES.get(lang_code, lang_code)
-        self._set_status(f"Idioma cambiado a {name}. Reinicia la app para aplicarlo.")
-        self._log_msg(f"Idioma cambiado a {name}. Reinicia para aplicar.", "info")
+        self._rebuild_ui()
+
+    def _on_language_change(self, value: str) -> None:
+        """Callback del selector de idioma en la pestaña Opciones."""
+        reverse = {v: k for k, v in LANGUAGES.items()}
+        self._change_language(reverse.get(value, "es"))
+
+    def _open_donate(self) -> None:
+        """Abre el enlace de donación en el navegador predeterminado."""
+        webbrowser.open(DONATE_URL)
+
+    def _rebuild_ui(self) -> None:
+        """
+        Reconstruye todos los widgets de la ventana con el idioma actual.
+        Preserva estado de automatización si estaba corriendo.
+        Permite cambiar idioma en vivo sin reiniciar la aplicación.
+        """
+        # Detener countdown para evitar callbacks a widgets que serán destruidos
+        self._countdown_active = False
+
+        # Snapshot del estado de automatización antes de destruir widgets
+        was_running = self.is_running
+        is_paused   = self.pause_event.is_set()
+
+        # Desanclar menubar antes de destruir para evitar state inconsistente en Windows
+        try:
+            self.configure(menu="")
+        except Exception:
+            pass
+
+        # Snapshot de la lista de hijos ANTES de iterar para evitar mutación
+        # durante la destrucción (destroy() puede modificar winfo_children())
+        for widget in list(self.winfo_children()):
+            try:
+                widget.destroy()
+            except Exception:
+                pass
+
+        # Actualizar título con el nuevo idioma
+        lang = self.cfg.get("language", "es")
+        self.title(f"{get_text('app_title', lang)}  ·  v{VERSION}")
+
+        # Reconstruir menubar y contenido completo
+        self._create_menubar()
+        self._create_widgets()
+        self._load_config_into_ui()
+
+        # Restaurar estado visual si la automatización seguía corriendo
+        if was_running:
+            self.btn_start.configure(state="disabled")
+            self.btn_stop.configure(state="normal")
+            self.btn_pause.configure(state="normal")
+            if is_paused:
+                self.btn_pause.configure(
+                    text="▶  Reanudar  (F7)",
+                    fg_color="#1f6aa5", hover_color="#1a5a8a",
+                )
 
     def _change_appearance(self, mode: str) -> None:
         """Aplica el modo de apariencia y lo guarda."""
@@ -920,31 +1007,48 @@ class ClaroApp(ctk.CTk):
             self._set_status("⚠  log.txt no encontrado.")
 
     def _show_about(self) -> None:
-        """Abre el diálogo 'Acerca de' con información de la app."""
+        """Abre el diálogo 'Acerca de' con información de la app y enlace de donación."""
         lang = self.cfg.get("language", "es")
         win = ctk.CTkToplevel(self)
         win.title(get_text("about_title", lang))
-        win.geometry("380x230")
+        win.geometry("390x310")
         win.resizable(False, False)
-        win.transient(self)   # Modal sobre la ventana principal
+        win.transient(self)
         win.grab_set()
 
         # Centrar sobre la ventana principal
         px, py = self.winfo_x(), self.winfo_y()
         pw, ph = self.winfo_width(), self.winfo_height()
-        win.geometry(f"380x230+{px + (pw - 380)//2}+{py + (ph - 230)//2}")
+        win.geometry(f"390x310+{px + (pw - 390)//2}+{py + (ph - 310)//2}")
 
         ctk.CTkLabel(win, text=f"⚡  {APP_NAME}",
-                     font=ctk.CTkFont(size=19, weight="bold")).pack(pady=(22, 4))
+                     font=ctk.CTkFont(size=19, weight="bold")).pack(pady=(20, 4))
         ctk.CTkLabel(win, text=f"Versión  {VERSION}",
                      font=ctk.CTkFont(size=13)).pack()
         ctk.CTkLabel(win, text=f"Creado por  {AUTHOR}",
                      font=ctk.CTkFont(size=12),
-                     text_color=("gray50", "gray60")).pack(pady=(12, 2))
+                     text_color=("gray50", "gray60")).pack(pady=(10, 2))
         ctk.CTkLabel(win, text=f"© {YEAR}  Derechos Reservados",
                      font=ctk.CTkFont(size=11),
                      text_color=("gray50", "gray60")).pack()
-        ctk.CTkButton(win, text="OK", width=100, command=win.destroy).pack(pady=18)
+
+        # Separador
+        ctk.CTkFrame(win, height=1, fg_color=("gray65", "gray30")).pack(fill="x", padx=24, pady=14)
+
+        # Bloque de donación
+        ctk.CTkLabel(win, text=get_text("donate_tooltip", lang),
+                     font=ctk.CTkFont(size=11),
+                     text_color=("gray45", "gray60")).pack()
+        ctk.CTkButton(
+            win,
+            text=get_text("btn_donate", lang),
+            font=ctk.CTkFont(size=13, weight="bold"),
+            width=210, height=36,
+            fg_color="#c07800", hover_color="#9a5e00",
+            command=self._open_donate,
+        ).pack(pady=(6, 10))
+
+        ctk.CTkButton(win, text="OK", width=100, command=win.destroy).pack(pady=(0, 16))
 
     def _on_close(self) -> None:
         """Guarda posición y cierra la app; si el bot corre, pide confirmación."""

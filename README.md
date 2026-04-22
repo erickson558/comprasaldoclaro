@@ -2,7 +2,7 @@
 
 > Automatización de compra de paquetes en **Mi Claro Guatemala** con interfaz gráfica moderna.
 
-[![Version](https://img.shields.io/badge/version-0.3.5-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
+[![Version](https://img.shields.io/badge/version-0.7.0-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://python.org)
 [![Build](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml/badge.svg)](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml)
@@ -139,6 +139,16 @@ La versión debe coincidir en: `version.py` → GUI → README → git tag → G
 ---
 
 ## Changelog
+
+### V0.7.0 — 2026-04-22
+- **feat:** Botón "☕ Invítame una cerveza" (PayPal) en barra de acciones, menú Ayuda y diálogo About
+- **feat:** Cambio de idioma en vivo sin reinicio — selector de idioma prominente en pestaña Opciones
+- **fix:** `carousel3_direction` ahora se pasa correctamente a `run_automation` (siempre usaba "next")
+- **fix:** `_wait_for_loader` dentro del bucle de carousel (evita 17+ reintentos fallidos)
+- **fix:** `asyncio.CancelledError` capturado en worker thread (prevenía GUI congelada)
+- **fix:** `_safe_wait_networkidle` duplicado post-compra eliminado (ahorraba hasta 15 s)
+- **fix:** Log con `RotatingFileHandler` (500 KB + 1 backup, máx ~1 MB total)
+- **fix:** Flujo de compra: facturación → selección de tarjeta → CVV (orden corregido)
 
 ### V0.3.5 — 2026-04-21
 - **fix:** Soporte explícito para dropdown de tarjeta basado en `input#selectedCard`/`name=selectedCard` (readonly), alineado al HTML real capturado
