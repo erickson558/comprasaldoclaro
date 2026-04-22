@@ -19,8 +19,22 @@ logger = logging.getLogger("ComprasClaroApp")
 # URL de login de Mi Claro Guatemala
 CLARO_LOGIN_URL = "https://www.claro.com.gt/miclaro/login"
 
+# Slow motion activo en tiempo de ejecución (en ms), tomado desde config.
+# Se usa para que las pausas internas también respeten el valor de la GUI,
+# incluso en rutas con evaluate()/click JS que Playwright no ralentiza igual.
+_RUNTIME_SLOW_MO_MS = 0
+
 
 # ── Helpers internos ───────────────────────────────────────────────────────
+
+async def _runtime_pause(min_seconds: float = 0.0) -> None:
+    """
+    Pausa cooperativa que combina una base mínima con el slow_mo configurado.
+    Si slow_mo=0 mantiene el comportamiento previo (solo min_seconds).
+    """
+    delay = max(float(min_seconds), _RUNTIME_SLOW_MO_MS / 1000.0)
+    if delay > 0:
+        await asyncio.sleep(delay)
 
 async def _safe_click(page: Page, selector: str, timeout: int = 5000) -> bool:
     """
@@ -105,7 +119,7 @@ async def _safe_page_evaluate(page: Page, script: str, retries: int = 1):
                     attempt + 1,
                     retries,
                 )
-                await asyncio.sleep(0.25)
+                await _runtime_pause(0.25)
                 await _safe_wait_networkidle(page, timeout=5000)
                 continue
 
@@ -265,7 +279,7 @@ async def _find_visible_in_frames(page: Page, selectors: list[str], timeout_ms: 
                         return frame, selector
                 except Exception:
                     continue
-        await asyncio.sleep(0.15)
+        await _runtime_pause(0.15)
     return None
 
 
@@ -986,7 +1000,7 @@ async def _dismiss_modal(page: Page) -> None:
 
     if clicked:
         logger.debug("Modal cerrado con JS click en .btnBlancoRojo")
-        await asyncio.sleep(0.5)
+        await _runtime_pause(0.5)
         return
 
     # ── Prioridad 2: JS click en cualquier botón del modal por texto ──────────
@@ -1007,12 +1021,12 @@ async def _dismiss_modal(page: Page) -> None:
 
     if clicked:
         logger.debug("Modal cerrado con JS click por texto")
-        await asyncio.sleep(0.5)
+        await _runtime_pause(0.5)
         return
 
     # ── Prioridad 3: Escape + JS hide (solo si el modal existe pero no respondió) ──
     await page.keyboard.press("Escape")
-    await asyncio.sleep(0.4)
+    await _runtime_pause(0.4)
     hidden = await _safe_page_evaluate(page, """() => {
         const hide = (el) => {
             el.style.display = 'none';
@@ -1068,8 +1082,17 @@ async def run_automation(
     password      = config.get("password", "")
     phone_number  = config.get("phone_number", "34884422")
     headless      = config.get("headless", True)
-    slow_mo       = int(config.get("slow_mo", 0))
+    try:
+        slow_mo = int(config.get("slow_mo", 0))
+    except (TypeError, ValueError):
+        slow_mo = 0
+    # Normalizar a un rango seguro para evitar valores negativos o extremos.
+    slow_mo = max(0, min(slow_mo, 5000))
     payment_method = str(config.get("payment_method", "tarjeta")).strip().lower()
+
+    # Exponer slow_mo a helpers internos para pausas consistentes.
+    global _RUNTIME_SLOW_MO_MS
+    _RUNTIME_SLOW_MO_MS = slow_mo
 
     # Solo carrusel 3 es relevante en este flujo
     c3_clicks     = int(config.get("carousel3_next_clicks", 4))
@@ -1079,7 +1102,7 @@ async def run_automation(
     async with async_playwright() as playwright:
 
         # ── Lanzar Chromium ────────────────────────────────────────────────
-        notify("Iniciando navegador Chromium...")
+        notify(f"Iniciando navegador Chromium (slow_mo={slow_mo}ms)...")
         browser = await playwright.chromium.launch(
             headless=headless,
             slow_mo=slow_mo,
@@ -1107,7 +1130,7 @@ async def run_automation(
             await page.goto(CLARO_LOGIN_URL, wait_until="domcontentloaded")
 
             # Pausa breve para que el JS del sitio (SweetAlert, etc.) se inicialice
-            await asyncio.sleep(1)
+            await _runtime_pause(1)
 
             # Popup SweetAlert2 inicial — condicional; puede no aparecer.
             # Usamos _safe_click para no lanzar timeout si no está presente.
@@ -1248,7 +1271,7 @@ async def run_automation(
                 clicked = await _try_selectors(page, slick_next_selectors, timeout=10000)
                 if not clicked:
                     logger.warning("No se encontró .slick-next para avanzar carrusel")
-                await asyncio.sleep(0.3)
+                await _runtime_pause(0.3)
 
             # ── 6. Comprar paquete en el carrusel ─────────────────────────
             # Hace clic en el botón "Comprar" del paquete en la posición c3_slide.
@@ -1316,7 +1339,7 @@ async def run_automation(
             notify("✅ Proceso de compra completado exitosamente.")
 
             # Pausa para que el estado final sea visible si headless=False
-            await asyncio.sleep(2)
+            await _runtime_pause(2)
 
         except RuntimeError as exc:
             # Error controlado: el usuario detuvo la automatización
