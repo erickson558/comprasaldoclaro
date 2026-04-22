@@ -42,7 +42,8 @@ class ClaroApp(ctk.CTk):
 
         # Estado interno de la automatización
         self.is_running: bool = False
-        self.stop_event = threading.Event()   # Para solicitar parada desde la GUI
+        self.stop_event  = threading.Event()
+        self.pause_event = threading.Event()
         self.msg_queue: queue.Queue = queue.Queue()  # Canal GUI ↔ hilo de automatización
 
         # Estado del countdown de autocierre
@@ -108,6 +109,7 @@ class ClaroApp(ctk.CTk):
         # Atajos de teclado estilo Windows
         self.bind("<F5>",        lambda _e: self._start_automation())
         self.bind("<F6>",        lambda _e: self._stop_automation())
+        self.bind("<F7>",        lambda _e: self._toggle_pause())
         self.bind("<Escape>",    lambda _e: self._on_close())
         self.bind("<Alt-Return>",lambda _e: self._show_about())
 
@@ -222,6 +224,17 @@ class ClaroApp(ctk.CTk):
             command=self._start_automation,
         )
         self.btn_start.pack(side="left", padx=10, pady=8)
+
+        self.btn_pause = ctk.CTkButton(
+            btn_bar,
+            text="⏸  Pausar  (F7)",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            width=155, height=38,
+            fg_color="#b07800", hover_color="#8a5c00",
+            state="disabled",
+            command=self._toggle_pause,
+        )
+        self.btn_pause.pack(side="left", padx=4, pady=8)
 
         self.btn_stop = ctk.CTkButton(
             btn_bar,
@@ -368,12 +381,23 @@ class ClaroApp(ctk.CTk):
         self._c2_clicks = ctk.StringVar(value="9")
         self._c3_clicks = ctk.StringVar(value="4")
         self._c3_slide  = ctk.StringVar(value="13")
+        self._c3_direction = ctk.StringVar(value="next")
         self._target_package_slide = ctk.StringVar(value="13")
         self._target_package_keyword = ctk.StringVar(value="")
 
         _carousel_block(parent, "carousel1_title", self._c1_clicks, self._c1_slide)
         _carousel_block(parent, "carousel2_title", self._c2_clicks)          # sin slide
         _carousel_block(parent, "carousel3_title", self._c3_clicks, self._c3_slide)
+
+        # Dirección del carrusel 3 (Siguiente / Anterior)
+        dir_frm = ctk.CTkFrame(parent)
+        dir_frm.pack(fill="x", padx=10, pady=(0, 4))
+        ctk.CTkLabel(dir_frm, text="Dirección carrusel:", width=160, anchor="w").pack(side="left", padx=10)
+        for val, lbl in (("next", "Siguiente →"), ("prev", "← Anterior")):
+            ctk.CTkRadioButton(
+                dir_frm, text=lbl, variable=self._c3_direction, value=val,
+                command=self._autosave,
+            ).pack(side="left", padx=6)
 
         # Selector explícito del paquete objetivo usado por la automatización.
         target_frame = ctk.CTkFrame(parent)
@@ -561,6 +585,7 @@ class ClaroApp(ctk.CTk):
         self._c2_clicks.set(str(c.get("carousel2_next_clicks",  9)))
         self._c3_clicks.set(str(c.get("carousel3_next_clicks",  4)))
         self._c3_slide.set(str( c.get("carousel3_slide",        13)))
+        self._c3_direction.set(c.get("carousel3_direction", "next"))
         self._target_package_slide.set(str(c.get("target_package_slide", c.get("carousel3_slide", 13))))
         self._target_package_keyword.set(c.get("target_package_keyword", ""))
 
@@ -619,6 +644,7 @@ class ClaroApp(ctk.CTk):
             "carousel2_next_clicks": _int(self._c2_clicks, 9),
             "carousel3_next_clicks": _int(self._c3_clicks, 4),
             "carousel3_slide":       _int(self._c3_slide,  13),
+            "carousel3_direction":   self._c3_direction.get(),
             "target_package_slide":  _int(self._target_package_slide, 13),
             "target_package_keyword": self._target_package_keyword.get().strip(),
             # Pago
@@ -656,11 +682,15 @@ class ClaroApp(ctk.CTk):
             return
 
         self._autosave()
+        self._stop_countdown()
         self.stop_event.clear()
+        self.pause_event.clear()
         self.is_running = True
 
-        # Actualizar UI: deshabilitar Start, habilitar Stop
+        # Actualizar UI: deshabilitar Start, habilitar Pausar y Stop
         self.btn_start.configure(state="disabled")
+        self.btn_pause.configure(state="normal", text="⏸  Pausar  (F7)",
+                                 fg_color="#b07800", hover_color="#8a5c00")
         self.btn_stop.configure(state="normal")
         self._set_status("⚙  Iniciando automatización…")
         self._log_msg("▶  Iniciando proceso de automatización…", "info")
@@ -678,20 +708,22 @@ class ClaroApp(ctk.CTk):
         asyncio.set_event_loop(loop)
 
         try:
-            # Solo los parámetros que usa automation.py (V0.1.x).
-            # Carruseles 1/2 y payment_method fueron eliminados del flujo Sentinel.
+            # Solo los parámetros que usa automation.py en el flujo actual.
             auto_cfg = {k: self.cfg[k] for k in (
                 "email", "password", "phone_number",
                 "headless", "slow_mo",
+                "payment_method",
                 "billing_autofill", "billing_name", "billing_nit",
                 "billing_address", "billing_email", "billing_cvv",
-                "carousel3_next_clicks", "carousel3_slide", "target_package_slide", "target_package_keyword",
+                "carousel3_next_clicks", "carousel3_slide", "carousel3_direction",
+                "target_package_slide", "target_package_keyword",
             ) if k in self.cfg}
 
             loop.run_until_complete(
                 run_automation(auto_cfg,
                                status_callback=self._enqueue_status,
-                               stop_event=self.stop_event)
+                               stop_event=self.stop_event,
+                               pause_event=self.pause_event)
             )
             self.msg_queue.put(("success", "✅  ¡Proceso completado exitosamente!"))
 
@@ -700,6 +732,10 @@ class ClaroApp(ctk.CTk):
                 self.msg_queue.put(("warn", "⏹  Proceso detenido por el usuario."))
             else:
                 self.msg_queue.put(("error", f"❌  Error: {exc}"))
+        except asyncio.CancelledError:
+            # CancelledError hereda BaseException (no Exception) en Python 3.8+;
+            # sin este bloque la GUI quedaría bloqueada con is_running=True.
+            self.msg_queue.put(("warn", "⏹  Proceso cancelado."))
         except Exception as exc:
             self.msg_queue.put(("error", f"❌  Error inesperado: {exc}"))
         finally:
@@ -735,7 +771,10 @@ class ClaroApp(ctk.CTk):
                 elif kind == "done":
                     # Limpiar estado de ejecución
                     self.is_running = False
+                    self.pause_event.clear()
                     self.btn_start.configure(state="normal")
+                    self.btn_pause.configure(state="disabled", text="⏸  Pausar  (F7)",
+                                             fg_color="#b07800", hover_color="#8a5c00")
                     self.btn_stop.configure(state="disabled")
 
                     # Si el usuario pidió cerrar mientras el bot corría,
@@ -760,9 +799,26 @@ class ClaroApp(ctk.CTk):
             # Reprogramar para la próxima iteración
             self.after(100, self._poll_message_queue)
 
+    def _toggle_pause(self) -> None:
+        """Alterna entre pausar y reanudar la automatización."""
+        if not self.is_running:
+            return
+        if self.pause_event.is_set():
+            self.pause_event.clear()
+            self.btn_pause.configure(text="⏸  Pausar  (F7)",
+                                     fg_color="#b07800", hover_color="#8a5c00")
+            self._log_msg("▶  Reanudando automatización...", "info")
+        else:
+            self.pause_event.set()
+            self.btn_pause.configure(text="▶  Reanudar  (F7)",
+                                     fg_color="#1f6aa5", hover_color="#1a5a8a")
+            self._set_status("⏸  Pausado — presiona Reanudar (F7) para continuar")
+            self._log_msg("⏸  Automatización pausada.", "warn")
+
     def _stop_automation(self) -> None:
         """Solicita al hilo de automatización que se detenga de forma segura."""
         if self.is_running:
+            self.pause_event.clear()  # Desbloquear la pausa para que pueda procesar el stop
             self.stop_event.set()
             self._set_status(f"⏹  {get_text('status_stopping', self.cfg.get('language','es'))}")
             self._log_msg("⏹  Solicitando detención…", "warn")

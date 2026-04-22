@@ -7,6 +7,7 @@
 import logging
 import os
 import sys
+from logging.handlers import RotatingFileHandler
 
 # Nombre del logger compartido en toda la app
 LOGGER_NAME = "ComprasClaroApp"
@@ -42,8 +43,13 @@ def setup_logger() -> logging.Logger:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # Handler → archivo log.txt (modo append para no perder sesiones anteriores)
-    file_handler = logging.FileHandler(log_path, encoding="utf-8", mode="a")
+    # Handler → archivo log.txt con rotación automática.
+    # maxBytes=500 KB, backupCount=1 → mantiene log.txt + log.txt.1 (máx ~1 MB total).
+    # Evita que el archivo crezca indefinidamente sesión tras sesión.
+    file_handler = RotatingFileHandler(
+        log_path, encoding="utf-8", mode="a",
+        maxBytes=500_000, backupCount=1,
+    )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
 

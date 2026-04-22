@@ -8,6 +8,7 @@
 
 import asyncio
 import logging
+import re
 import threading
 import time
 from typing import Callable, Optional
@@ -75,6 +76,20 @@ async def _safe_wait_networkidle(page: Page, timeout: int = 15000) -> None:
         await page.wait_for_load_state("networkidle", timeout=timeout)
     except Exception:
         logger.debug("networkidle no alcanzado en %dms; continuando.", timeout)
+
+
+async def _wait_for_loader(page: Page, timeout: int = 12000) -> None:
+    """
+    Espera a que desaparezca el overlay de carga de Mi Claro (div#loader.loading.active).
+    Ese overlay bloquea todos los clicks mientras está activo.
+    """
+    try:
+        await page.wait_for_function(
+            "() => !document.querySelector('div#loader.loading.active')",
+            timeout=timeout,
+        )
+    except Exception:
+        logger.debug("Loader no desapareció en %dms; continuando de todas formas.", timeout)
 
 
 async def _is_selector_visible(page: Page, selector: str, timeout: int = 2500) -> bool:
@@ -413,133 +428,62 @@ async def _stop_watchdog(
     await _safe_close_browser(browser)
 
 
-async def _handle_random_survey(page: Page, notify: Callable[[str], None]) -> None:
+async def _handle_random_survey(
+    page: Page,
+    notify: Callable[[str], None],
+    timeout_ms: int = 2000,
+) -> None:
     """
-    Maneja encuesta aleatoria de Mi Claro (Qualtrics): marcar 10, Siguiente y cerrar.
-    No debe romper el flujo si la encuesta no aparece.
+    Cierra la encuesta aleatoria de Mi Claro (Qualtrics) clickando el botón X.
+    No contesta la encuesta — simplemente la descarta.
+    timeout_ms controla cuánto tiempo se espera a que la encuesta aparezca.
     """
+    # img[alt="Cerrar"] es el botón confirmado por grabación de Sentinel.
     survey_markers = [
+        "img[alt='Cerrar']",
         "text=¿Recomendarías el portal Mi Claro",
         "text=Basándote en la gestión",
         "text=Con tecnología de Qualtrics",
     ]
 
-    found = await _find_visible_in_frames(page, survey_markers, timeout_ms=2000)
+    found = await _find_visible_in_frames(page, survey_markers, timeout_ms=timeout_ms)
     if not found:
         return
 
     frame, _ = found
-    notify("Encuesta aleatoria detectada; resolviendo automáticamente...")
+    notify("Encuesta detectada; cerrando...")
 
-    # Resolver encuesta dentro del contenedor del modal para evitar clicks fuera.
-    modal_roots = [
-        ".QSIWebResponsiveDialog",
-        ".QSIWebResponsive",
-        "div[role='dialog']",
-        "body",
-    ]
-
-    score_clicked = False
-    for root in modal_roots:
-        score_selectors = [
-            f"{root} button[aria-label='10']",
-            f"{root} [role='button'][aria-label='10']",
-            f"{root} button:has-text('10')",
-            f"{root} [role='button']:has-text('10')",
-            f"{root} label:has-text('10')",
-            f"{root} .QSIAnswerChoice:has-text('10')",
-        ]
-        for selector in score_selectors:
-            try:
-                await frame.wait_for_selector(selector, state="visible", timeout=350)
-                await frame.locator(selector).first.click()
-                score_clicked = True
-                logger.debug("Encuesta: score 10 marcado con selector %s", selector)
-                break
-            except Exception:
-                continue
-        if score_clicked:
-            break
-
-    if not score_clicked:
-        try:
-            # Fallback JS: ubica el texto "10" dentro del modal y clickea su ancestro interactivo.
-            score_clicked = bool(await frame.evaluate(
-                """() => {
-                    const root = document.querySelector('.QSIWebResponsiveDialog, .QSIWebResponsive, [role="dialog"]') || document.body;
-                    const nodes = Array.from(root.querySelectorAll('*'));
-                    const target = nodes.find(el => (el.textContent || '').trim() === '10');
-                    if (!target) return false;
-
-                    const clickable = target.closest('button, label, [role="button"], a, div') || target;
-                    ['pointerdown', 'mousedown', 'mouseup', 'click'].forEach(type => {
-                        clickable.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
-                    });
-                    return true;
-                }"""
-            ))
-            logger.debug("Encuesta: score 10 por fallback JS = %s", score_clicked)
-        except Exception as exc:
-            logger.debug("No se pudo marcar score 10 en encuesta: %s", exc)
-
-    if score_clicked:
-        await asyncio.sleep(0.2)
-
-    next_clicked = False
-    for root in modal_roots:
-        next_selectors = [
-            f"{root} button:has-text('Siguiente')",
-            f"{root} input[value='Siguiente']",
-            f"{root} button:has-text('Next')",
-            f"{root} input[value='Next']",
-        ]
-        for selector in next_selectors:
-            try:
-                await frame.wait_for_selector(selector, state="visible", timeout=350)
-                await frame.locator(selector).first.click()
-                next_clicked = True
-                logger.debug("Encuesta: botón Siguiente con selector %s", selector)
-                break
-            except Exception:
-                continue
-        if next_clicked:
-            break
-
-    if not next_clicked:
-        await _click_first_visible_in_frames(
-            page,
-            [
-                "button:has-text('Siguiente')",
-                "input[value='Siguiente']",
-                "button:has-text('Next')",
-                "input[value='Next']",
-            ],
-            timeout_ms=2500,
-        )
-
-    closed = False
     close_selectors = [
+        "img[alt='Cerrar']",          # Mi Claro — confirmado por Sentinel
+        "[alt='Cerrar']",
+        "img[alt='cerrar' i]",        # variante sin mayúscula
         ".QSIWebResponsiveDialog button[aria-label='Close']",
         ".QSIWebResponsiveDialog button[title='Close']",
-        ".QSIWebResponsiveDialog .close",
         ".QSIWebResponsiveDialog button[class*='close']",
+        ".QSIWebResponsiveDialog .close",
         ".QSIWebResponsiveDialog .close-btn",
         "button[aria-label='Close']",
         "button[title='Close']",
+        "button[class*='close']",
         "text=×",
+        "text=✕",
     ]
+
+    closed = False
     for selector in close_selectors:
         try:
-            await frame.wait_for_selector(selector, state="visible", timeout=300)
+            await frame.wait_for_selector(selector, state="visible", timeout=400)
             await frame.locator(selector).first.click()
             closed = True
-            logger.debug("Encuesta: modal cerrado con selector %s", selector)
+            logger.debug("Encuesta cerrada con selector %s", selector)
             break
         except Exception:
             continue
+
     if not closed:
         try:
             await page.keyboard.press("Escape")
+            logger.debug("Encuesta cerrada con Escape")
         except Exception:
             pass
 
@@ -664,6 +608,11 @@ async def _complete_billing_form(page: Page, config: dict, notify: Callable[[str
     )
 
     await asyncio.sleep(0.5)
+    # El loader puede reaparecer brevemente mientras el sitio valida los campos.
+    await _wait_for_loader(page)
+
+    # Esperar encuesta antes de enviar — aparece justo antes del Continuar.
+    await _handle_random_survey(page, notify, timeout_ms=8000)
 
     continue_selectors = [
         "button:has-text('Continuar')",
@@ -681,7 +630,7 @@ async def _complete_billing_form(page: Page, config: dict, notify: Callable[[str
         ".btn:has-text('Pagar')",
     ]
     notify("Enviando formulario de facturación...")
-    clicked_continue = await _click_first_visible_in_frames(page, continue_selectors, timeout_ms=12000)
+    clicked_continue = await _click_first_visible_in_frames(page, continue_selectors, timeout_ms=15000)
     if not clicked_continue:
         clicked_continue = await _click_continue_fallback_in_frames(page)
     if not clicked_continue:
@@ -745,198 +694,132 @@ async def _select_payment_method(page: Page, config: dict, notify: Callable[[str
 
 async def _select_saved_card_and_continue(page: Page, notify: Callable[[str], None]) -> None:
     """
-    Atiende la pantalla intermedia de checkout: "Selecciona tu tarjeta".
-    Selecciona la primera tarjeta disponible y luego pulsa "Continuar".
+    Atiende la pantalla de "Selecciona tu tarjeta" de Mi Claro.
+
+    Estructura del componente (confirmada por inspección del DOM):
+      div.select-container > div.select-option
+        input#selectedCard (readonly, class="input-select")
+        label.labelInput[.labelSelected]   ← tiene .labelSelected cuando hay tarjeta elegida
+        label.labelValue                   ← texto vacío o "Visa-1115"
+        label.triangle_down
+        div[data-testid="qa_options_list"].hidden
+          div.option > div[data-testid="qa_option_value"] > div.optionsInfo__card ("Visa-1115")
+
+    Dos estados posibles:
+      A) labelValue ya tiene texto  → tarjeta pre-seleccionada, solo hace falta Continuar.
+      B) labelValue vacío           → hay que abrir el dropdown y seleccionar la tarjeta.
     """
-    card_screen_markers = [
-        "text=Selecciona tu tarjeta",
-        "text=Selecciona la tarjeta",
-        "text=Seleccionar tarjeta",
-        "text=Elige tu tarjeta",
-        "text=Choose your card",
-    ]
+    # ── Paso 0: cerrar encuesta ANTES de detectar tarjeta ───────────────────
+    # La encuesta de Qualtrics aparece sobre el checkout y puede cubrir el iframe
+    # con el selector de tarjeta. Si no se cierra primero, _find_visible_in_frames
+    # puede no detectar div.select-container como visible.
+    notify("Verificando encuesta antes de seleccionar tarjeta...")
+    await _handle_random_survey(page, notify, timeout_ms=8000)
 
-    found = await _find_visible_in_frames(page, card_screen_markers, timeout_ms=9000)
-    if not found:
-        # Fallback: algunos flujos muestran solo el dropdown sin el texto exacto.
-        probable_card_dropdown = False
+    # ── Detección: buscar div.select-container en TODOS los frames ──────────
+    # page.wait_for_selector solo busca en el main frame; el checkout de Mi Claro
+    # carga en un iframe, por lo que hay que iterar todos los frames.
+    notify("Esperando pantalla de selección de tarjeta...")
+    logger.debug("[tarjeta] Buscando div.select-container en todos los frames (timeout=9 s)...")
+
+    card_detect = await _find_visible_in_frames(
+        page, ["div.select-container"], timeout_ms=9000
+    )
+
+    if card_detect:
+        card_frame, _ = card_detect
+        logger.debug("[tarjeta] div.select-container visible en frame: %s", card_frame.url)
+    else:
+        # Fallback: input#selectedCard puede tener opacity:0 y no pasar is_visible(),
+        # pero sí estar presente en el DOM del iframe.
+        logger.debug("[tarjeta] div.select-container no visible; buscando input#selectedCard en DOM...")
+        card_frame = None
         for frame in page.frames:
             try:
-                probable_card_dropdown = bool(await frame.evaluate(
-                    """() => {
-                        const visible = (el) => {
-                            if (!el) return false;
-                            const st = window.getComputedStyle(el);
-                            return st.display !== 'none' && st.visibility !== 'hidden' && el.offsetParent !== null;
-                        };
-                        const nodes = Array.from(document.querySelectorAll('select, [role="combobox"], .ng-select, .select2, .dropdown, .mat-select, input#selectedCard, input[name="selectedCard"]'));
-                        return nodes.some(el => {
-                            if (!visible(el)) return false;
-                            const txt = ((el.textContent || '') + ' ' + (el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('placeholder') || '')).toLowerCase();
-                            const attrs = ((el.id || '') + ' ' + (el.className || '') + ' ' + (el.getAttribute('name') || '')).toLowerCase();
-                            return txt.includes('tarjeta') || txt.includes('card') || attrs.includes('selectedcard');
-                        });
-                    }"""
-                ))
-                if probable_card_dropdown:
+                cnt = await frame.locator("input#selectedCard").count()
+                if cnt > 0:
+                    card_frame = frame
+                    logger.debug("[tarjeta] input#selectedCard encontrado (count=%d) en frame: %s", cnt, frame.url)
                     break
             except Exception:
                 continue
 
-        if not probable_card_dropdown:
-            logger.debug("Pantalla de selección de tarjeta no detectada; continuando.")
-            return
+    if card_frame is None:
+        logger.debug("[tarjeta] Pantalla de selección de tarjeta no detectada en ningún frame; continuando.")
+        return
 
-    notify("Pantalla de tarjeta detectada; seleccionando tarjeta guardada...")
+    notify("Pantalla de tarjeta detectada...")
 
-    # Intento 1: select nativo con options, pero solo en contexto de tarjeta.
-    selected = False
-    for frame in page.frames:
+    # ── Estado A: tarjeta ya pre-seleccionada (labelValue no vacío) ───────────
+    already_selected = await card_frame.evaluate("""() => {
+        const lbl = document.querySelector('label.labelValue');
+        return lbl ? lbl.textContent.trim().length > 0 : false;
+    }""")
+    label_value_text = await card_frame.evaluate(
+        "() => document.querySelector('label.labelValue')?.textContent.trim() || ''"
+    )
+    logger.debug("[tarjeta] Estado inicial → already_selected=%s, labelValue='%s'", already_selected, label_value_text)
+
+    if already_selected:
+        notify(f"Tarjeta ya seleccionada ({label_value_text}); continuando...")
+        logger.debug("[tarjeta] Estado A: tarjeta pre-seleccionada '%s'", label_value_text)
+
+    else:
+        # ── Estado B: labelValue vacío → abrir dropdown con locator.click() ──
+        # locator.click() usa CDP internamente: genera eventos isTrusted:true
+        # sin necesidad de calcular bounding_box manualmente.
+        notify("Seleccionando tarjeta guardada...")
+        card_txt = None
+
         try:
-            selected = bool(await frame.evaluate(
-                """() => {
-                    const visible = (el) => {
-                        if (!el) return false;
-                        const st = window.getComputedStyle(el);
-                        return st.display !== 'none' && st.visibility !== 'hidden' && el.offsetParent !== null;
-                    };
+            # Paso 1: click en el contenedor del dropdown para abrirlo
+            trigger = card_frame.locator(".select-option").first
+            trigger_count = await trigger.count()
+            logger.debug("[tarjeta] .select-option count=%d", trigger_count)
+            await trigger.click(timeout=5000)
+            logger.debug("[tarjeta] Click en .select-option ejecutado.")
 
-                    const hasCardContext = (el) => {
-                        const selfText = ((el.textContent || '') + ' ' + (el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('placeholder') || '')).toLowerCase();
-                        const attrs = ((el.id || '') + ' ' + (el.className || '') + ' ' + (el.getAttribute('name') || '')).toLowerCase();
-                        if (selfText.includes('tarjeta') || selfText.includes('card')) return true;
-                        if (attrs.includes('tarjeta') || attrs.includes('card')) return true;
-
-                        const container = el.closest('section, form, div, article, fieldset, [role="dialog"]');
-                        const containerText = (container?.textContent || '').toLowerCase();
-                        return containerText.includes('tarjeta') || containerText.includes('card');
-                    };
-
-                    const selects = Array.from(document.querySelectorAll('select')).filter(el => visible(el) && hasCardContext(el));
-                    for (const sel of selects) {
-                        const options = Array.from(sel.options || []);
-                        const valid = options.find(opt => {
-                            const txt = (opt.textContent || '').trim().toLowerCase();
-                            const placeholder = !txt || txt.includes('selecciona') || txt.includes('elige') || txt.includes('escoge') || txt.includes('select');
-                            return !opt.disabled && !!opt.value && !placeholder;
-                        });
-                        if (!valid) continue;
-
-                        sel.value = valid.value;
-                        sel.dispatchEvent(new Event('input', { bubbles: true }));
-                        sel.dispatchEvent(new Event('change', { bubbles: true }));
-                        return true;
-                    }
-                    return false;
-                }"""
-            ))
-            if selected:
-                logger.debug("Tarjeta seleccionada en select nativo en frame %s", frame.url)
-                break
-        except Exception:
-            continue
-
-    # Intento 2: dropdown custom (placeholder + opciones en overlay/lista).
-    if not selected:
-        for frame in page.frames:
+            # Paso 2: esperar que qa_options_list pierda la clase 'hidden'
             try:
-                selected = bool(await frame.evaluate(
+                await card_frame.wait_for_function(
                     """() => {
-                        const visible = (el) => {
-                            if (!el) return false;
-                            const st = window.getComputedStyle(el);
-                            return st.display !== 'none' && st.visibility !== 'hidden' && el.offsetParent !== null;
-                        };
-                        const norm = (v) => (v || '').toLowerCase().trim();
-                        const isPlaceholder = (txt) => {
-                            const t = norm(txt);
-                            return !t || t.includes('selecciona') || t.includes('elige') || t.includes('escoge') || t === '--' || t.includes('select');
-                        };
-
-                        // Caso Sentinel real: input readonly (#selectedCard) que abre lista de tarjetas guardadas.
-                        const selectedCardInput = document.querySelector('input#selectedCard, input[name="selectedCard"]');
-                        if (selectedCardInput && visible(selectedCardInput)) {
-                            selectedCardInput.click();
-
-                            const cardLike = (txt) => {
-                                const t = norm(txt);
-                                if (!t) return false;
-                                if (t.includes('eliminar') || t.includes('pagar con otra tarjeta') || t.includes('regresar') || t.includes('continuar')) return false;
-                                return t.includes('visa') || t.includes('master') || t.includes('amex') || /\\d{4}/.test(t);
-                            };
-
-                            const savedCardSelectors = [
-                                '#singleCard',
-                                '.singleCard',
-                                '[class*="card"]',
-                                '[class*="tarjeta"]',
-                                '.dropdown-item',
-                                'li',
-                                'div',
-                                'a',
-                                'button'
-                            ];
-
-                            for (const sel of savedCardSelectors) {
-                                const items = Array.from(document.querySelectorAll(sel)).filter(visible);
-                                for (const item of items) {
-                                    const txt = norm(item.textContent) + ' ' + norm(item.getAttribute('aria-label'));
-                                    if (!cardLike(txt)) continue;
-
-                                    const clickable = item.closest('button, a, [role="option"], [role="button"], li, div') || item;
-                                    clickable.click();
-                                    return true;
-                                }
-                            }
-                        }
-
-                        const triggers = Array.from(document.querySelectorAll(
-                            "input#selectedCard, input[name='selectedCard'], [role='combobox'], .ng-select-container, .select2-selection, .mat-select-trigger, button, div, span"
-                        )).filter(el => {
-                            if (!visible(el)) return false;
-                            const txt = norm(el.textContent) + ' ' + norm(el.getAttribute('aria-label')) + ' ' + norm(el.getAttribute('placeholder'));
-                            const attrs = norm(el.id) + ' ' + norm(el.getAttribute('name')) + ' ' + norm(el.className);
-                            return txt.includes('tarjeta') || txt.includes('card') || txt.includes('selecciona') || attrs.includes('selectedcard');
-                        });
-
-                        if (triggers.length > 0) {
-                            triggers[0].click();
-                        }
-
-                        const optionSelectors = [
-                            "[role='option']",
-                            ".ng-option",
-                            ".select2-results__option",
-                            ".mat-option",
-                            "div[role='listbox'] div",
-                            "li",
-                            ".dropdown-item",
-                        ];
-
-                        for (const sel of optionSelectors) {
-                            const options = Array.from(document.querySelectorAll(sel)).filter(visible);
-                            for (const opt of options) {
-                                const txt = norm(opt.textContent) + ' ' + norm(opt.getAttribute('aria-label'));
-                                const disabled = opt.hasAttribute('disabled') || opt.getAttribute('aria-disabled') === 'true' || opt.classList.contains('disabled');
-                                if (disabled || isPlaceholder(txt)) continue;
-                                opt.click();
-                                return true;
-                            }
-                        }
-
-                        return false;
-                    }"""
-                ))
-                if selected:
-                    logger.debug("Tarjeta seleccionada en dropdown custom en frame %s", frame.url)
-                    break
+                        const el = document.querySelector('[data-testid="qa_options_list"]');
+                        return el && !el.classList.contains('hidden');
+                    }""",
+                    timeout=4000,
+                )
+                logger.debug("[tarjeta] Dropdown abierto (qa_options_list sin 'hidden').")
             except Exception:
-                continue
+                classes = await card_frame.evaluate(
+                    "() => document.querySelector('[data-testid=\"qa_options_list\"]')?.className || 'no encontrado'"
+                )
+                logger.debug("[tarjeta] Dropdown no abrió en 4 s; clases: '%s'", classes)
 
-    if not selected:
-        logger.debug("No se logró seleccionar tarjeta automáticamente en esta vista.")
+            # Paso 3: esperar y hacer click en la primera opción de tarjeta
+            try:
+                await card_frame.wait_for_selector(
+                    "div.option:not(.optionAddCard)", state="visible", timeout=3000
+                )
+            except Exception:
+                logger.debug("[tarjeta] div.option no visible en 3 s; intentando click de todas formas.")
 
-    # Con tarjeta elegida (o si ya venía elegida), intentar continuar.
+            opt = card_frame.locator("div.option:not(.optionAddCard)").first
+            opt_count = await opt.count()
+            logger.debug("[tarjeta] div.option count=%d", opt_count)
+            await opt.click(timeout=5000)
+            logger.debug("[tarjeta] Click en opción ejecutado.")
+
+            try:
+                card_txt = await card_frame.locator(".optionsInfo__card").first.inner_text()
+                notify(f"Tarjeta seleccionada: {card_txt.strip()}")
+                logger.debug("[tarjeta] Nombre tarjeta: '%s'", card_txt.strip())
+            except Exception:
+                logger.debug("[tarjeta] Tarjeta seleccionada (nombre no disponible).")
+
+        except Exception as exc:
+            logger.debug("[tarjeta] Error en selección de tarjeta: %s", exc)
+
+    # ── Continuar checkout ────────────────────────────────────────────────────
     continue_selectors = [
         "button:has-text('Continuar')",
         "input[value='Continuar']",
@@ -944,12 +827,21 @@ async def _select_saved_card_and_continue(page: Page, notify: Callable[[str], No
         ".btnPrimario",
         "button.btnPrimario",
     ]
+    logger.debug("[tarjeta] Buscando botón Continuar en todos los frames...")
     clicked_continue = await _click_first_visible_in_frames(page, continue_selectors, timeout_ms=7000)
     if clicked_continue:
-        notify("Tarjeta seleccionada; continuando checkout...")
+        notify("Tarjeta confirmada; continuando checkout...")
         await _safe_wait_networkidle(page, timeout=8000)
     else:
-        logger.debug("Botón Continuar de selección de tarjeta no encontrado en esta vista.")
+        logger.debug("[tarjeta] Botón Continuar NO encontrado en ningún frame.")
+        # Volcar HTML de todos los frames visibles para diagnóstico
+        for i, frame in enumerate(page.frames):
+            try:
+                body_html = await frame.evaluate("() => document.body?.innerHTML?.slice(0, 800) || ''")
+                if body_html.strip():
+                    logger.debug("[tarjeta] Frame %d (%s) body (800 chars): %s", i, frame.url[:80], body_html[:800])
+            except Exception:
+                pass
 
 
 async def _complete_cvv_step(page: Page, config: dict, notify: Callable[[str], None]) -> None:
@@ -1102,12 +994,31 @@ def _check_stop(stop_event: Optional[threading.Event]) -> None:
         raise RuntimeError("stopped by user")
 
 
+async def _check_pause(
+    pause_event: Optional[threading.Event],
+    stop_event: Optional[threading.Event],
+    notify: Callable[[str], None],
+) -> None:
+    """
+    Suspende la automatización mientras pause_event esté activo.
+    También verifica stop_event dentro del bucle de espera.
+    """
+    if not pause_event or not pause_event.is_set():
+        return
+    notify("⏸ Automatización pausada. Presiona Reanudar para continuar...")
+    while pause_event.is_set():
+        _check_stop(stop_event)
+        await asyncio.sleep(0.3)
+    notify("▶ Reanudando automatización...")
+
+
 # ── Función principal exportada ────────────────────────────────────────────
 
 async def run_automation(
     config: dict,
     status_callback: Optional[Callable[[str], None]] = None,
     stop_event: Optional[threading.Event] = None,
+    pause_event: Optional[threading.Event] = None,
 ) -> None:
     """
     Ejecuta el flujo completo de compra de paquetes en Mi Claro Guatemala.
@@ -1146,6 +1057,7 @@ async def run_automation(
     # Solo carrusel 3 es relevante en este flujo
     c3_clicks     = int(config.get("carousel3_next_clicks", 4))
     c3_slide      = int(config.get("target_package_slide", config.get("carousel3_slide", 13)))
+    c3_direction  = str(config.get("carousel3_direction", "next")).strip().lower()
     package_keyword = str(config.get("target_package_keyword", "")).strip()
 
     async with async_playwright() as playwright:
@@ -1175,6 +1087,7 @@ async def run_automation(
 
             # ── 1. Página de login ─────────────────────────────────────────
             _check_stop(stop_event)
+            await _check_pause(pause_event, stop_event, notify)
             notify("Navegando a Mi Claro Guatemala...")
             await page.goto(CLARO_LOGIN_URL, wait_until="domcontentloaded")
 
@@ -1195,6 +1108,7 @@ async def run_automation(
 
             # ── 2. Login ───────────────────────────────────────────────────
             _check_stop(stop_event)
+            await _check_pause(pause_event, stop_event, notify)
 
             # Detectar si el usuario ya está logueado (sesión activa en el navegador).
             # Si el menú de Gestiones ya es visible, no es necesario ingresar credenciales.
@@ -1270,15 +1184,23 @@ async def run_automation(
             # Flujo Sentinel actualizado: abrir Gestiones, expandir la opción
             # Compras y entrar en "Paquetes y recargas".
             _check_stop(stop_event)
+            await _check_pause(pause_event, stop_event, notify)
             notify("Abriendo menú Gestiones...")
+            await _wait_for_loader(page)
             await page.click(".menu_header_gestiones > label")
             logger.debug("Menú Gestiones abierto.")
 
             notify("Expandiendo menú Compras...")
-            await page.click(".hideOnDesk:nth-child(3) .ico-chevron-down")
+            await _wait_for_loader(page)
+            # Sentinel V2: clic en el link "Compras" directamente (no el chevron)
+            try:
+                await page.click(".hideOnDesk:nth-child(3) a", timeout=8000)
+            except Exception:
+                await page.click(".hideOnDesk:nth-child(3) .ico-chevron-down", timeout=8000)
             logger.debug("Submenú Compras expandido.")
 
             notify("Abriendo Paquetes y recargas...")
+            await _wait_for_loader(page)
             await _click_and_navigate(page, ".subRoutes a", timeout=20000)
 
             # Descartar modal de renovación si aparece al entrar en la vista.
@@ -1288,6 +1210,7 @@ async def run_automation(
 
             # ── 4. Selección de línea en el combo .selectLine ──────────────
             _check_stop(stop_event)
+            await _check_pause(pause_event, stop_event, notify)
             notify(f"Seleccionando línea {phone_number}...")
             await _select_phone_line(page, phone_number, timeout=15000)
             logger.debug("Selección de línea completada para %s.", phone_number)
@@ -1302,30 +1225,41 @@ async def run_automation(
             # El número de clics es configurable desde la GUI.
             # Selectores en orden de especificidad: Sentinel exacto → sin wrapper → global
             _check_stop(stop_event)
+            await _check_pause(pause_event, stop_event, notify)
             notify("Esperando que cargue el carrusel de paquetes...")
             try:
                 await page.wait_for_selector(".contBoxPaquetes", timeout=15000)
             except Exception:
                 logger.warning(".contBoxPaquetes no encontrado en 15s; continuando...")
 
-            slick_next_selectors = [
-                "div:nth-child(3) > .contBoxPaquetes .slick-next",
-                ".contBoxPaquetes .slick-next",
-                ".slick-next",
+            btn_class = "slick-prev" if c3_direction == "prev" else "slick-next"
+            slick_selectors = [
+                f"div:nth-child(3) > .contBoxPaquetes .{btn_class}",
+                f".contBoxPaquetes .{btn_class}",
+                f".{btn_class}",
             ]
-            notify(f"Navegando carrusel ({c3_clicks} clic(s) en Siguiente)...")
+            dir_label = "Anterior" if c3_direction == "prev" else "Siguiente"
+            notify(f"Navegando carrusel ({c3_clicks} clic(s) en {dir_label})...")
             for _ in range(c3_clicks):
                 _check_stop(stop_event)
                 await _handle_random_survey(page, notify)
-                clicked = await _try_selectors(page, slick_next_selectors, timeout=10000)
+                # Esperar loader DENTRO del bucle: reaparece entre cada click
+                # y bloquea los pointer events causando 17+ reintentos fallidos.
+                await _wait_for_loader(page)
+                clicked = await _try_selectors(page, slick_selectors, timeout=10000)
                 if not clicked:
-                    logger.warning("No se encontró .slick-next para avanzar carrusel")
+                    logger.warning("No se encontró .%s para avanzar carrusel", btn_class)
                 await _runtime_pause(0.3)
 
             # ── 6. Comprar paquete en el carrusel ─────────────────────────
             # Hace clic en el botón "Comprar" del paquete en la posición c3_slide.
             # El índice nth-child es configurable desde la GUI.
             _check_stop(stop_event)
+            await _check_pause(pause_event, stop_event, notify)
+            # Esperar loader antes del click de compra: el mismo overlay que bloquea
+            # el carrusel puede estar activo justo después del último click de navegación.
+            await _wait_for_loader(page)
+
             bought = False
             if package_keyword:
                 notify(f"Buscando paquete por texto '{package_keyword}'...")
@@ -1351,39 +1285,46 @@ async def run_automation(
                     f".slick-slide:nth-child({c3_slide}) .btn:nth-child(1)",
                     timeout=20000,
                 )
-            else:
-                # Cuando sí se encuentra el selector por fallback, aún podría existir
-                # navegación parcial o recarga AJAX; igual esperamos estabilidad.
-                await _safe_wait_networkidle(page)
-            await _handle_random_survey(page, notify)
+            # Una sola espera post-compra (elimina el networkidle duplicado que
+            # añadía hasta 15 s extra cuando bought=True).
             await _safe_wait_networkidle(page)
-            await _safe_wait_networkidle(page)
+            await _wait_for_loader(page)
+
+            # Patrón Sentinel post-Comprar: scroll 432 → scroll -324
+            await page.mouse.wheel(0, 432)
+            await asyncio.sleep(0.3)
+            await page.mouse.wheel(0, -324)
+            await asyncio.sleep(0.3)
+            await _wait_for_loader(page)
 
             # ── 6.1 Seleccionar método de pago explícito si la vista lo requiere ─
             _check_stop(stop_event)
+            await _check_pause(pause_event, stop_event, notify)
             config_with_payment = dict(config)
             config_with_payment["payment_method"] = payment_method
             await _select_payment_method(page, config_with_payment, notify)
-            await _handle_random_survey(page, notify)
 
-            # ── 6.2 Seleccionar tarjeta guardada y continuar checkout ────────
+            # ── 6.3 Formulario de facturación ────────────────────────────────
+            # Aparece inmediatamente después de "Comprar" (con posible encuesta).
+            # _complete_billing_form incluye survey check propio antes del Continuar.
             _check_stop(stop_event)
-            await _select_saved_card_and_continue(page, notify)
-            await _handle_random_survey(page, notify)
-
-            # ── 7. Completar formulario de facturación si aparece ──────────
-            _check_stop(stop_event)
+            await _check_pause(pause_event, stop_event, notify)
             await _complete_billing_form(page, config, notify)
             await _handle_random_survey(page, notify)
 
-            # ── 8. Completar CVV si el sitio lo solicita ───────────────────
+            # ── 6.4 Seleccionar tarjeta guardada ─────────────────────────────
+            # Aparece DESPUÉS del Continuar del formulario de facturación.
+            # _select_saved_card_and_continue incluye su propio survey check.
             _check_stop(stop_event)
-            await _complete_cvv_step(page, config, notify)
+            await _check_pause(pause_event, stop_event, notify)
+            await _select_saved_card_and_continue(page, notify)
             await _handle_random_survey(page, notify)
 
-            # ── 9. Scrolls finales (igual que Sentinel actualizado) ────────
-            await page.mouse.wheel(0, 432)
-            await page.mouse.wheel(0, -324)
+            # ── 6.5 Completar CVV si el sitio lo solicita ─────────────────────
+            _check_stop(stop_event)
+            await _check_pause(pause_event, stop_event, notify)
+            await _complete_cvv_step(page, config, notify)
+            await _handle_random_survey(page, notify)
 
             notify("✅ Proceso de compra completado exitosamente.")
 
@@ -1413,7 +1354,7 @@ async def run_automation(
                 watchdog_task.cancel()
                 try:
                     await watchdog_task
-                except Exception:
+                except (Exception, asyncio.CancelledError):
                     pass
 
             # Siempre cerrar el navegador, incluso si hubo error

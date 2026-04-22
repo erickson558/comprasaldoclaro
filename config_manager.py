@@ -38,7 +38,8 @@ DEFAULT_CONFIG: dict = {
     "carousel1_next_clicks": 3,   # Clics en "Next" del carrusel 1
     "carousel1_slide": 13,        # Índice (nth-child) del paquete en carrusel 1
     "carousel2_next_clicks": 9,   # Clics en "Next" del carrusel 2 (paquetes extra)
-    "carousel3_next_clicks": 4,   # Clics en "Next" del carrusel 3 (tarjeta)
+    "carousel3_next_clicks": 4,   # Clics en "Next"/"Prev" del carrusel 3 (tarjeta)
+    "carousel3_direction": "next", # Dirección: "next" o "prev"
     "carousel3_slide": 13,        # Índice del paquete en carrusel 3
     "target_package_slide": 13,   # Selector explícito del paquete objetivo (GUI)
     "target_package_keyword": "", # Texto opcional del paquete (prioridad sobre slide)
