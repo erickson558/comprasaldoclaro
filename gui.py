@@ -148,8 +148,8 @@ class ClaroApp(ctk.CTk):
         # Menú Idioma
         m_lang = tk.Menu(bar, **menu_cfg)
         bar.add_cascade(label=get_text("menu_language", lang), menu=m_lang)
-        m_lang.add_command(label="Español", command=lambda: self._change_language("es"))
-        m_lang.add_command(label="English",  command=lambda: self._change_language("en"))
+        for code, display_name in LANGUAGES.items():
+            m_lang.add_command(label=display_name, command=lambda c=code: self._change_language(c))
 
         # Menú Apariencia
         m_appear = tk.Menu(bar, **menu_cfg)
@@ -233,7 +233,7 @@ class ClaroApp(ctk.CTk):
 
         self.btn_pause = ctk.CTkButton(
             btn_bar,
-            text="⏸  Pausar  (F7)",
+            text=f"⏸  {get_text('btn_pause', lang)}  (F7)",
             font=ctk.CTkFont(size=13, weight="bold"),
             width=155, height=38,
             fg_color="#b07800", hover_color="#8a5c00",
@@ -408,8 +408,13 @@ class ClaroApp(ctk.CTk):
         # Dirección del carrusel 3 (Siguiente / Anterior)
         dir_frm = ctk.CTkFrame(parent)
         dir_frm.pack(fill="x", padx=10, pady=(0, 4))
-        ctk.CTkLabel(dir_frm, text="Dirección carrusel:", width=160, anchor="w").pack(side="left", padx=10)
-        for val, lbl in (("next", "Siguiente →"), ("prev", "← Anterior")):
+        ctk.CTkLabel(
+            dir_frm,
+            text=get_text("label_carousel_direction", lang),
+            width=160,
+            anchor="w",
+        ).pack(side="left", padx=10)
+        for val, lbl in (("next", get_text("direction_next", lang)), ("prev", get_text("direction_prev", lang))):
             ctk.CTkRadioButton(
                 dir_frm, text=lbl, variable=self._c3_direction, value=val,
                 command=self._autosave,
@@ -710,8 +715,9 @@ class ClaroApp(ctk.CTk):
 
         # Validación básica de entrada
         if not self._email.get().strip():
-            self._log_msg("⚠  Se requiere un correo electrónico.", "warn")
-            self._set_status(f"⚠  {get_text('error_email_req', self.cfg.get('language','es'))}")
+            lang = self.cfg.get("language", "es")
+            self._log_msg(get_text("error_email_req", lang), "warn")
+            self._set_status(get_text("error_email_req", lang))
             return
 
         self._autosave()
@@ -722,11 +728,16 @@ class ClaroApp(ctk.CTk):
 
         # Actualizar UI: deshabilitar Start, habilitar Pausar y Stop
         self.btn_start.configure(state="disabled")
-        self.btn_pause.configure(state="normal", text="⏸  Pausar  (F7)",
-                                 fg_color="#b07800", hover_color="#8a5c00")
+        lang = self.cfg.get("language", "es")
+        self.btn_pause.configure(
+            state="normal",
+            text=f"⏸  {get_text('btn_pause', lang)}  (F7)",
+            fg_color="#b07800",
+            hover_color="#8a5c00",
+        )
         self.btn_stop.configure(state="normal")
-        self._set_status("⚙  Iniciando automatización…")
-        self._log_msg("▶  Iniciando proceso de automatización…", "info")
+        self._set_status(f"⚙  {get_text('status_starting', lang)}")
+        self._log_msg(f"▶  {get_text('log_starting_process', lang)}", "info")
 
         # Lanzar en un hilo demonio para no bloquear la GUI
         t = threading.Thread(target=self._automation_thread_worker, daemon=True)
@@ -758,7 +769,8 @@ class ClaroApp(ctk.CTk):
                                stop_event=self.stop_event,
                                pause_event=self.pause_event)
             )
-            self.msg_queue.put(("success", "✅  ¡Proceso completado exitosamente!"))
+            lang = self.cfg.get("language", "es")
+            self.msg_queue.put(("success", f"✅  {get_text('status_completed', lang)}"))
 
         except RuntimeError as exc:
             if "stopped by user" in str(exc):
@@ -806,14 +818,19 @@ class ClaroApp(ctk.CTk):
                     self.is_running = False
                     self.pause_event.clear()
                     self.btn_start.configure(state="normal")
-                    self.btn_pause.configure(state="disabled", text="⏸  Pausar  (F7)",
-                                             fg_color="#b07800", hover_color="#8a5c00")
+                    lang = self.cfg.get("language", "es")
+                    self.btn_pause.configure(
+                        state="disabled",
+                        text=f"⏸  {get_text('btn_pause', lang)}  (F7)",
+                        fg_color="#b07800",
+                        hover_color="#8a5c00",
+                    )
                     self.btn_stop.configure(state="disabled")
 
                     # Si el usuario pidió cerrar mientras el bot corría,
                     # cerrar solo cuando el hilo ya terminó limpiamente.
                     if self._pending_close:
-                        self._log_msg("ℹ  Automatización detenida; cerrando aplicación...", "info")
+                        self._log_msg(f"ℹ  {get_text('log_closing_after_stop', lang)}", "info")
                         self.after(50, self._finalize_close)
                         continue
 
@@ -836,17 +853,18 @@ class ClaroApp(ctk.CTk):
         """Alterna entre pausar y reanudar la automatización."""
         if not self.is_running:
             return
+        lang = self.cfg.get("language", "es")
         if self.pause_event.is_set():
             self.pause_event.clear()
-            self.btn_pause.configure(text="⏸  Pausar  (F7)",
+            self.btn_pause.configure(text=f"⏸  {get_text('btn_pause', lang)}  (F7)",
                                      fg_color="#b07800", hover_color="#8a5c00")
-            self._log_msg("▶  Reanudando automatización...", "info")
+            self._log_msg(f"▶  {get_text('log_resuming', lang)}", "info")
         else:
             self.pause_event.set()
-            self.btn_pause.configure(text="▶  Reanudar  (F7)",
+            self.btn_pause.configure(text=f"▶  {get_text('btn_resume', lang)}  (F7)",
                                      fg_color="#1f6aa5", hover_color="#1a5a8a")
-            self._set_status("⏸  Pausado — presiona Reanudar (F7) para continuar")
-            self._log_msg("⏸  Automatización pausada.", "warn")
+            self._set_status(f"⏸  {get_text('status_pause_hint', lang)}")
+            self._log_msg(f"⏸  {get_text('log_paused', lang)}", "warn")
 
     def _stop_automation(self) -> None:
         """Solicita al hilo de automatización que se detenga de forma segura."""
@@ -975,8 +993,9 @@ class ClaroApp(ctk.CTk):
             self.btn_stop.configure(state="normal")
             self.btn_pause.configure(state="normal")
             if is_paused:
+                lang = self.cfg.get("language", "es")
                 self.btn_pause.configure(
-                    text="▶  Reanudar  (F7)",
+                    text=f"▶  {get_text('btn_resume', lang)}  (F7)",
                     fg_color="#1f6aa5", hover_color="#1a5a8a",
                 )
 
@@ -1004,7 +1023,8 @@ class ClaroApp(ctk.CTk):
         if os.path.exists(log_path):
             os.startfile(log_path)  # Windows; en Linux/Mac usar subprocess.run(["xdg-open", log_path])
         else:
-            self._set_status("⚠  log.txt no encontrado.")
+            lang = self.cfg.get("language", "es")
+            self._set_status(f"⚠  {get_text('status_log_missing', lang)}")
 
     def _show_about(self) -> None:
         """Abre el diálogo 'Acerca de' con información de la app y enlace de donación."""
@@ -1023,12 +1043,12 @@ class ClaroApp(ctk.CTk):
 
         ctk.CTkLabel(win, text=f"⚡  {APP_NAME}",
                      font=ctk.CTkFont(size=19, weight="bold")).pack(pady=(20, 4))
-        ctk.CTkLabel(win, text=f"Versión  {VERSION}",
+        ctk.CTkLabel(win, text=f"{get_text('about_version', lang)}  {VERSION}",
                      font=ctk.CTkFont(size=13)).pack()
-        ctk.CTkLabel(win, text=f"Creado por  {AUTHOR}",
+        ctk.CTkLabel(win, text=f"{get_text('about_created_by', lang)}  {AUTHOR}",
                      font=ctk.CTkFont(size=12),
                      text_color=("gray50", "gray60")).pack(pady=(10, 2))
-        ctk.CTkLabel(win, text=f"© {YEAR}  Derechos Reservados",
+        ctk.CTkLabel(win, text=f"© {YEAR}  {get_text('about_rights', lang)}",
                      font=ctk.CTkFont(size=11),
                      text_color=("gray50", "gray60")).pack()
 
@@ -1048,24 +1068,25 @@ class ClaroApp(ctk.CTk):
             command=self._open_donate,
         ).pack(pady=(6, 10))
 
-        ctk.CTkButton(win, text="OK", width=100, command=win.destroy).pack(pady=(0, 16))
+        ctk.CTkButton(win, text=get_text("btn_ok", lang), width=100, command=win.destroy).pack(pady=(0, 16))
 
     def _on_close(self) -> None:
         """Guarda posición y cierra la app; si el bot corre, pide confirmación."""
         if self.is_running:
+            lang = self.cfg.get("language", "es")
             answer = messagebox.askyesno(
-                "Automatización en curso",
-                "La automatización sigue en ejecución. ¿Deseas detenerla y cerrar la aplicación?"
+                get_text("dialog_running_title", lang),
+                get_text("dialog_running_message", lang),
             )
             if not answer:
-                self._set_status("⚙  Cierre cancelado; automatización continúa en ejecución.")
-                self._log_msg("ℹ  Cierre cancelado por el usuario; automatización continúa.", "info")
+                self._set_status(f"⚙  {get_text('status_close_cancelled', lang)}")
+                self._log_msg(f"ℹ  {get_text('log_close_cancelled', lang)}", "info")
                 return
 
             self._pending_close = True
             self.stop_event.set()
-            self._set_status("⏹  Deteniendo automatización antes de cerrar...")
-            self._log_msg("⏹  Cierre solicitado; esperando detención limpia de la automatización...", "warn")
+            self._set_status(f"⏹  {get_text('status_stopping_before_close', lang)}")
+            self._log_msg(f"⏹  {get_text('log_closing_wait', lang)}", "warn")
             return
 
         self._finalize_close()

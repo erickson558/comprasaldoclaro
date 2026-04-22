@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# i18n.py  –  Internacionalización (ES / EN)
+# i18n.py  –  Internacionalización (ES / EN / PT)
 # Agrega nuevos idiomas sumando una clave al dict TRANSLATIONS con el código
 # ISO 639-1 correspondiente (ej. "fr" para francés).
 # ─────────────────────────────────────────────────────────────────────────────
@@ -8,21 +8,28 @@
 LANGUAGES: dict[str, str] = {
     "es": "Español",
     "en": "English",
+    "pt": "Português",
 }
 
 # ── Diccionario de traducciones ────────────────────────────────────────────
-# Clave → { "es": texto_es, "en": texto_en }
+# Clave → { "es": texto_es, "en": texto_en, "pt": texto_pt }
 TRANSLATIONS: dict[str, dict[str, str]] = {
     # Título de la aplicación
     "app_title": {
         "es": "Compra Saldo Claro",
         "en": "Claro Balance Purchase",
+        "pt": "Compra de Saldo Claro",
     },
     # Pestañas de configuración
     "tab_credentials": {"es": "Credenciales",    "en": "Credentials"},
     "tab_automation":  {"es": "Automatización",  "en": "Automation"},
     "tab_billing":     {"es": "Facturación",     "en": "Billing"},
     "tab_options":     {"es": "Opciones",         "en": "Options"},
+
+    # Textos de dirección de carrusel
+    "label_carousel_direction": {"es": "Dirección carrusel:", "en": "Carousel direction:", "pt": "Direção do carrossel:"},
+    "direction_next":           {"es": "Siguiente →",          "en": "Next →",              "pt": "Próximo →"},
+    "direction_prev":           {"es": "← Anterior",           "en": "← Previous",          "pt": "← Anterior"},
 
     # Etiquetas de credenciales
     "label_email":        {"es": "Correo electrónico",        "en": "Email address"},
@@ -75,6 +82,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "btn_start": {"es": "Iniciar",  "en": "Start"},
     "btn_stop":  {"es": "Detener", "en": "Stop"},
     "btn_exit":  {"es": "Salir",   "en": "Exit"},
+    "btn_pause":  {"es": "Pausar",   "en": "Pause",  "pt": "Pausar"},
+    "btn_resume": {"es": "Reanudar", "en": "Resume", "pt": "Retomar"},
+    "btn_ok":     {"es": "OK",       "en": "OK",     "pt": "OK"},
 
     # Panel de log
     "log_title":     {"es": "Registro de actividad",   "en": "Activity log"},
@@ -83,6 +93,19 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     # Barra de estado
     "status_ready":         {"es": "Listo",                                   "en": "Ready"},
     "autoclose_countdown":  {"es": "Cerrando en",                             "en": "Closing in"},
+    "status_starting":      {"es": "Iniciando automatización...",             "en": "Starting automation...", "pt": "Iniciando automação..."},
+    "status_pause_hint":    {"es": "Pausado; presiona Reanudar (F7) para continuar", "en": "Paused; press Resume (F7) to continue", "pt": "Pausado; pressione Retomar (F7) para continuar"},
+    "status_log_missing":   {"es": "log.txt no encontrado.",                  "en": "log.txt not found.", "pt": "log.txt não encontrado."},
+    "status_close_cancelled": {"es": "Cierre cancelado; automatización continúa en ejecución.", "en": "Close canceled; automation is still running.", "pt": "Fechamento cancelado; a automação continua em execução."},
+    "status_stopping_before_close": {"es": "Deteniendo automatización antes de cerrar...", "en": "Stopping automation before closing...", "pt": "Parando automação antes de fechar..."},
+
+    # Mensajes de log de GUI
+    "log_starting_process":    {"es": "Iniciando proceso de automatización...", "en": "Starting automation process...", "pt": "Iniciando processo de automação..."},
+    "log_resuming":            {"es": "Reanudando automatización...", "en": "Resuming automation...", "pt": "Retomando automação..."},
+    "log_paused":              {"es": "Automatización pausada.", "en": "Automation paused.", "pt": "Automação pausada."},
+    "log_close_cancelled":     {"es": "Cierre cancelado por el usuario; automatización continúa.", "en": "Close canceled by user; automation continues.", "pt": "Fechamento cancelado pelo usuário; automação continua."},
+    "log_closing_wait":        {"es": "Cierre solicitado; esperando detención limpia de la automatización...", "en": "Close requested; waiting for clean automation stop...", "pt": "Fechamento solicitado; aguardando parada limpa da automação..."},
+    "log_closing_after_stop":  {"es": "Automatización detenida; cerrando aplicación...", "en": "Automation stopped; closing application...", "pt": "Automação parada; fechando aplicação..."},
 
     # Menú principal
     "menu_file":            {"es": "Archivo",     "en": "File"},
@@ -107,21 +130,27 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
     # Diálogo About
     "about_title": {"es": "Acerca de la aplicación", "en": "About this application"},
+    "about_version": {"es": "Versión", "en": "Version", "pt": "Versão"},
+    "about_created_by": {"es": "Creado por", "en": "Created by", "pt": "Criado por"},
+    "about_rights": {"es": "Derechos Reservados", "en": "All rights reserved", "pt": "Todos os direitos reservados"},
+
+    # Diálogos
+    "dialog_running_title": {"es": "Automatización en curso", "en": "Automation in progress", "pt": "Automação em andamento"},
+    "dialog_running_message": {"es": "La automatización sigue en ejecución. ¿Deseas detenerla y cerrar la aplicación?", "en": "Automation is still running. Do you want to stop it and close the app?", "pt": "A automação ainda está em execução. Deseja pará-la e fechar o aplicativo?"},
 
     # Mensajes de estado
-    "status_starting":   {"es": "Iniciando...",                       "en": "Starting..."},
-    "status_stopping":   {"es": "Deteniendo...",                      "en": "Stopping..."},
-    "status_completed":  {"es": "✅ Proceso completado.",              "en": "✅ Process completed."},
-    "status_stopped":    {"es": "⏹ Detenido por el usuario.",         "en": "⏹ Stopped by user."},
-    "error_email_req":   {"es": "⚠ Se requiere un correo electrónico.","en": "⚠ Email address is required."},
+    "status_stopping":   {"es": "Deteniendo...",                      "en": "Stopping...", "pt": "Parando..."},
+    "status_completed":  {"es": "✅ Proceso completado.",              "en": "✅ Process completed.", "pt": "✅ Processo concluído."},
+    "status_stopped":    {"es": "⏹ Detenido por el usuario.",         "en": "⏹ Stopped by user.", "pt": "⏹ Interrompido pelo usuário."},
+    "error_email_req":   {"es": "⚠ Se requiere un correo electrónico.","en": "⚠ Email address is required.", "pt": "⚠ E-mail é obrigatório."},
 }
 
 
 def get_text(key: str, lang: str = "es") -> str:
     """
     Devuelve el texto traducido para una clave y un código de idioma.
-    Si la clave o el idioma no existe, intenta devolver la versión en español
+    Si la clave o el idioma no existe, intenta devolver inglés o español
     y como último recurso devuelve la clave literal (never crashes).
     """
     entry = TRANSLATIONS.get(key, {})
-    return entry.get(lang) or entry.get("es") or key
+    return entry.get(lang) or entry.get("en") or entry.get("es") or key

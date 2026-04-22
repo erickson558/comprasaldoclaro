@@ -67,7 +67,7 @@ DEFAULT_CONFIG: dict = {
     "window_height": 680,
 
     # Preferencias de interfaz
-    "language": "es",             # "es" o "en"
+    "language": "es",             # "es", "en" o "pt"
     "appearance_mode": "dark",    # "dark", "light" o "system"
 }
 

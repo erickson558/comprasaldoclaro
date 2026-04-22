@@ -2,7 +2,7 @@
 
 > Automatización de compra de paquetes en **Mi Claro Guatemala** con interfaz gráfica moderna.
 
-[![Version](https://img.shields.io/badge/version-0.7.0-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
+[![Version](https://img.shields.io/badge/version-0.7.2-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://python.org)
 [![Build](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml/badge.svg)](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml)
@@ -139,6 +139,17 @@ La versión debe coincidir en: `version.py` → GUI → README → git tag → G
 ---
 
 ## Changelog
+
+### V0.7.2 — 2026-04-22
+- **fix:** Corregido bucle de reapertura en `.exe` al faltar Chromium; ya no se ejecuta `sys.executable -m playwright` en modo compilado
+- **fix:** Instalación automática de Chromium en modo `.exe` ahora usa estrategias seguras (`playwright ...` / `py -m playwright ...`) sin relanzar la app
+- **fix:** Mensaje de error más claro cuando la descarga automática falla para guiar instalación manual
+
+### V0.7.1 — 2026-04-22
+- **fix:** Si Chromium no existe al arrancar, la app ahora intenta descargarlo automáticamente en una carpeta local junto al `.exe`/`.py` (`playwright-browsers`) y lo usa desde ahí
+- **fix:** Launch de Playwright endurecido con fallback seguro al launch por defecto para mantener compatibilidad si falla el ejecutable local
+- **feat:** Menú de idioma dinámico basado en `LANGUAGES` con soporte adicional para Portugués (`pt`)
+- **fix:** Se eliminaron varios textos hardcodeados en español de la GUI (pausa/reanudar, diálogo de cierre, About, estados) para mejorar cobertura multiidioma
 
 ### V0.7.0 — 2026-04-22
 - **feat:** Botón "☕ Invítame una cerveza" (PayPal) en barra de acciones, menú Ayuda y diálogo About

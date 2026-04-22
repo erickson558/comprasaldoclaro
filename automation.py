@@ -8,7 +8,11 @@
 
 import asyncio
 import logging
+import os
+from pathlib import Path
 import re
+import subprocess
+import sys
 import threading
 import time
 from typing import Callable, Optional
@@ -24,6 +28,96 @@ CLARO_LOGIN_URL = "https://www.claro.com.gt/miclaro/login"
 # Se usa para que las pausas internas también respeten el valor de la GUI,
 # incluso en rutas con evaluate()/click JS que Playwright no ralentiza igual.
 _RUNTIME_SLOW_MO_MS = 0
+
+
+def _get_app_base_dir() -> Path:
+    """
+    Devuelve la carpeta base de ejecución:
+    - .exe compilado: carpeta del ejecutable
+    - .py normal: carpeta del script
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+def _get_local_playwright_browsers_dir() -> Path:
+    """
+    Carpeta local para navegadores Playwright junto al .exe/.py.
+    Mantenerla fuera de %TEMP% evita perder Chromium entre ejecuciones.
+    """
+    return _get_app_base_dir() / "playwright-browsers"
+
+
+def _find_local_chromium_executable() -> Optional[str]:
+    """
+    Busca chrome.exe descargado por Playwright en la carpeta local.
+    Retorna la ruta absoluta si existe; None si no se encuentra.
+    """
+    browsers_dir = _get_local_playwright_browsers_dir()
+    if not browsers_dir.exists():
+        return None
+
+    candidates = sorted(
+        browsers_dir.glob("chromium-*\\chrome-win\\chrome.exe"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for exe_path in candidates:
+        if exe_path.is_file():
+            return str(exe_path)
+    return None
+
+
+def _install_local_chromium(notify: Callable[[str], None]) -> bool:
+    """
+    Intenta instalar Chromium de Playwright en carpeta local junto al .exe/.py.
+    Devuelve True si la instalación terminó correctamente.
+    """
+    browsers_dir = _get_local_playwright_browsers_dir()
+    browsers_dir.mkdir(parents=True, exist_ok=True)
+
+    notify("Chromium no detectado localmente; descargando navegador...")
+    logger.info("Instalando Chromium local en: %s", browsers_dir)
+
+    env = os.environ.copy()
+    env["PLAYWRIGHT_BROWSERS_PATH"] = str(browsers_dir)
+
+    # IMPORTANTE: en PyInstaller (sys.frozen=True), sys.executable apunta al .exe
+    # de esta app. Ejecutar "sys.executable -m playwright ..." relanza la app y
+    # puede provocar un bucle de aperturas. Por eso ese comando se usa solo en .py.
+    commands: list[list[str]] = []
+    if not getattr(sys, "frozen", False):
+        commands.append([sys.executable, "-m", "playwright", "install", "chromium"])
+
+    # Fallbacks para entorno compilado o cuando el comando Python no está disponible.
+    commands.extend([
+        ["playwright", "install", "chromium"],
+        ["py", "-m", "playwright", "install", "chromium"],
+    ])
+
+    for cmd in commands:
+        try:
+            completed = subprocess.run(
+                cmd,
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            if completed.stdout:
+                logger.debug("Salida instalación Chromium (%s): %s", cmd[0], completed.stdout.strip())
+            logger.info("Instalación de Chromium completada con comando: %s", " ".join(cmd))
+            return True
+        except Exception as exc:
+            logger.warning("Falló instalación de Chromium con '%s': %s", " ".join(cmd), exc)
+
+    logger.error("No fue posible instalar Chromium localmente con los comandos disponibles.")
+    notify(
+        "No se pudo descargar Chromium automáticamente. "
+        "Instálalo manualmente con: playwright install chromium"
+    )
+    return False
 
 
 # ── Helpers internos ───────────────────────────────────────────────────────
@@ -1060,14 +1154,47 @@ async def run_automation(
     c3_direction  = str(config.get("carousel3_direction", "next")).strip().lower()
     package_keyword = str(config.get("target_package_keyword", "")).strip()
 
+    local_browsers_dir = _get_local_playwright_browsers_dir()
+    previous_browsers_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(local_browsers_dir)
+
+    chromium_executable = _find_local_chromium_executable()
+    if chromium_executable:
+        logger.info("Chromium local detectado: %s", chromium_executable)
+    else:
+        installed = _install_local_chromium(notify)
+        if installed:
+            chromium_executable = _find_local_chromium_executable()
+            if chromium_executable:
+                logger.info("Chromium local instalado y detectado: %s", chromium_executable)
+            else:
+                logger.warning("Instalación reportó éxito, pero no se encontró chrome.exe local.")
+
     async with async_playwright() as playwright:
 
         # ── Lanzar Chromium ────────────────────────────────────────────────
         notify(f"Iniciando navegador Chromium (slow_mo={slow_mo}ms)...")
-        browser = await playwright.chromium.launch(
-            headless=headless,
-            slow_mo=slow_mo,
-        )
+        launch_kwargs = {
+            "headless": headless,
+            "slow_mo": slow_mo,
+        }
+        if chromium_executable:
+            # Forzar el ejecutable local para evitar rutas temporales de _MEI.
+            launch_kwargs["executable_path"] = chromium_executable
+
+        try:
+            browser = await playwright.chromium.launch(**launch_kwargs)
+        except Exception as launch_exc:
+            # Fallback de compatibilidad: si el launch local falla, intentar launch por defecto.
+            logger.warning("Launch Chromium local falló, usando fallback por defecto: %s", launch_exc)
+            if previous_browsers_path is None:
+                os.environ.pop("PLAYWRIGHT_BROWSERS_PATH", None)
+            else:
+                os.environ["PLAYWRIGHT_BROWSERS_PATH"] = previous_browsers_path
+            browser = await playwright.chromium.launch(
+                headless=headless,
+                slow_mo=slow_mo,
+            )
 
         # Viewport fijo igual al grabado con Sentinel
         context: BrowserContext = await browser.new_context(
