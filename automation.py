@@ -769,11 +769,12 @@ async def _select_saved_card_and_continue(page: Page, notify: Callable[[str], No
                             const st = window.getComputedStyle(el);
                             return st.display !== 'none' && st.visibility !== 'hidden' && el.offsetParent !== null;
                         };
-                        const nodes = Array.from(document.querySelectorAll('select, [role="combobox"], .ng-select, .select2, .dropdown, .mat-select'));
+                        const nodes = Array.from(document.querySelectorAll('select, [role="combobox"], .ng-select, .select2, .dropdown, .mat-select, input#selectedCard, input[name="selectedCard"]'));
                         return nodes.some(el => {
                             if (!visible(el)) return false;
                             const txt = ((el.textContent || '') + ' ' + (el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('placeholder') || '')).toLowerCase();
-                            return txt.includes('tarjeta') || txt.includes('card');
+                            const attrs = ((el.id || '') + ' ' + (el.className || '') + ' ' + (el.getAttribute('name') || '')).toLowerCase();
+                            return txt.includes('tarjeta') || txt.includes('card') || attrs.includes('selectedcard');
                         });
                     }"""
                 ))
@@ -852,12 +853,50 @@ async def _select_saved_card_and_continue(page: Page, notify: Callable[[str], No
                             return !t || t.includes('selecciona') || t.includes('elige') || t.includes('escoge') || t === '--' || t.includes('select');
                         };
 
+                        // Caso Sentinel real: input readonly (#selectedCard) que abre lista de tarjetas guardadas.
+                        const selectedCardInput = document.querySelector('input#selectedCard, input[name="selectedCard"]');
+                        if (selectedCardInput && visible(selectedCardInput)) {
+                            selectedCardInput.click();
+
+                            const cardLike = (txt) => {
+                                const t = norm(txt);
+                                if (!t) return false;
+                                if (t.includes('eliminar') || t.includes('pagar con otra tarjeta') || t.includes('regresar') || t.includes('continuar')) return false;
+                                return t.includes('visa') || t.includes('master') || t.includes('amex') || /\\d{4}/.test(t);
+                            };
+
+                            const savedCardSelectors = [
+                                '#singleCard',
+                                '.singleCard',
+                                '[class*="card"]',
+                                '[class*="tarjeta"]',
+                                '.dropdown-item',
+                                'li',
+                                'div',
+                                'a',
+                                'button'
+                            ];
+
+                            for (const sel of savedCardSelectors) {
+                                const items = Array.from(document.querySelectorAll(sel)).filter(visible);
+                                for (const item of items) {
+                                    const txt = norm(item.textContent) + ' ' + norm(item.getAttribute('aria-label'));
+                                    if (!cardLike(txt)) continue;
+
+                                    const clickable = item.closest('button, a, [role="option"], [role="button"], li, div') || item;
+                                    clickable.click();
+                                    return true;
+                                }
+                            }
+                        }
+
                         const triggers = Array.from(document.querySelectorAll(
-                            "[role='combobox'], .ng-select-container, .select2-selection, .mat-select-trigger, button, div, span"
+                            "input#selectedCard, input[name='selectedCard'], [role='combobox'], .ng-select-container, .select2-selection, .mat-select-trigger, button, div, span"
                         )).filter(el => {
                             if (!visible(el)) return false;
                             const txt = norm(el.textContent) + ' ' + norm(el.getAttribute('aria-label')) + ' ' + norm(el.getAttribute('placeholder'));
-                            return txt.includes('tarjeta') || txt.includes('card') || txt.includes('selecciona');
+                            const attrs = norm(el.id) + ' ' + norm(el.getAttribute('name')) + ' ' + norm(el.className);
+                            return txt.includes('tarjeta') || txt.includes('card') || txt.includes('selecciona') || attrs.includes('selectedcard');
                         });
 
                         if (triggers.length > 0) {

@@ -2,7 +2,7 @@
 
 > Automatización de compra de paquetes en **Mi Claro Guatemala** con interfaz gráfica moderna.
 
-[![Version](https://img.shields.io/badge/version-0.3.4-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
+[![Version](https://img.shields.io/badge/version-0.3.5-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://python.org)
 [![Build](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml/badge.svg)](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml)
@@ -139,6 +139,11 @@ La versión debe coincidir en: `version.py` → GUI → README → git tag → G
 ---
 
 ## Changelog
+
+### V0.3.5 — 2026-04-21
+- **fix:** Soporte explícito para dropdown de tarjeta basado en `input#selectedCard`/`name=selectedCard` (readonly), alineado al HTML real capturado
+- **fix:** La detección de pantalla de tarjeta ahora reconoce el patrón `selectedCard` y evita omitir ese paso cuando no hay `select` nativo
+- **fix:** Selección robusta de tarjeta guardada en listas custom, priorizando elementos tipo VISA/MASTER/AMEX y evitando acciones como "Eliminar" o "Pagar con otra tarjeta"
 
 ### V0.3.4 — 2026-04-21
 - **fix:** Alineada la detección de pantalla de tarjeta con el flujo real de Sentinel, eliminando marcadores genéricos que podían activar falsos positivos
