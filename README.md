@@ -2,7 +2,7 @@
 
 > Automatización de compra de paquetes en **Mi Claro Guatemala** con interfaz gráfica moderna.
 
-[![Version](https://img.shields.io/badge/version-0.3.3-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
+[![Version](https://img.shields.io/badge/version-0.3.4-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://python.org)
 [![Build](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml/badge.svg)](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml)
@@ -139,6 +139,10 @@ La versión debe coincidir en: `version.py` → GUI → README → git tag → G
 ---
 
 ## Changelog
+
+### V0.3.4 — 2026-04-21
+- **fix:** Alineada la detección de pantalla de tarjeta con el flujo real de Sentinel, eliminando marcadores genéricos que podían activar falsos positivos
+- **fix:** La selección automática de dropdown de tarjeta ahora solo actúa en selects con contexto explícito de tarjeta (`tarjeta/card`) para evitar tocar combos no relacionados
 
 ### V0.3.3 — 2026-04-21
 - **fix:** `slow_mo` ahora se normaliza de forma segura (sin negativos ni valores inválidos) antes de lanzar Playwright

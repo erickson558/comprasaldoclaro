@@ -754,8 +754,6 @@ async def _select_saved_card_and_continue(page: Page, notify: Callable[[str], No
         "text=Seleccionar tarjeta",
         "text=Elige tu tarjeta",
         "text=Choose your card",
-        "[role='combobox']",
-        "select",
     ]
 
     found = await _find_visible_in_frames(page, card_screen_markers, timeout_ms=9000)
@@ -790,7 +788,7 @@ async def _select_saved_card_and_continue(page: Page, notify: Callable[[str], No
 
     notify("Pantalla de tarjeta detectada; seleccionando tarjeta guardada...")
 
-    # Intento 1: select nativo con options.
+    # Intento 1: select nativo con options, pero solo en contexto de tarjeta.
     selected = False
     for frame in page.frames:
         try:
@@ -802,12 +800,24 @@ async def _select_saved_card_and_continue(page: Page, notify: Callable[[str], No
                         return st.display !== 'none' && st.visibility !== 'hidden' && el.offsetParent !== null;
                     };
 
-                    const selects = Array.from(document.querySelectorAll('select')).filter(visible);
+                    const hasCardContext = (el) => {
+                        const selfText = ((el.textContent || '') + ' ' + (el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('placeholder') || '')).toLowerCase();
+                        const attrs = ((el.id || '') + ' ' + (el.className || '') + ' ' + (el.getAttribute('name') || '')).toLowerCase();
+                        if (selfText.includes('tarjeta') || selfText.includes('card')) return true;
+                        if (attrs.includes('tarjeta') || attrs.includes('card')) return true;
+
+                        const container = el.closest('section, form, div, article, fieldset, [role="dialog"]');
+                        const containerText = (container?.textContent || '').toLowerCase();
+                        return containerText.includes('tarjeta') || containerText.includes('card');
+                    };
+
+                    const selects = Array.from(document.querySelectorAll('select')).filter(el => visible(el) && hasCardContext(el));
                     for (const sel of selects) {
                         const options = Array.from(sel.options || []);
                         const valid = options.find(opt => {
                             const txt = (opt.textContent || '').trim().toLowerCase();
-                            return !opt.disabled && !!opt.value && !txt.includes('selecciona');
+                            const placeholder = !txt || txt.includes('selecciona') || txt.includes('elige') || txt.includes('escoge') || txt.includes('select');
+                            return !opt.disabled && !!opt.value && !placeholder;
                         });
                         if (!valid) continue;
 
