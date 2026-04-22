@@ -9,6 +9,7 @@
 import asyncio
 import logging
 import threading
+import time
 from typing import Callable, Optional
 
 from playwright.async_api import async_playwright, Page, BrowserContext, Locator, Frame
@@ -182,23 +183,53 @@ async def _select_phone_line(page: Page, phone_number: str, timeout: int = 15000
 
     option_values = await page.locator(".selectLine option").evaluate_all(
         """options => options
-            .map(option => option.value)
-            .filter(value => typeof value === 'string' && value.trim().length > 0)"""
+            .map(option => ({
+                value: option.value,
+                text: (option.textContent || '').trim()
+            }))
+            .filter(option => typeof option.value === 'string' && option.value.trim().length > 0)"""
     )
     logger.debug(".selectLine contiene %d option(es) con value utilizable.", len(option_values))
 
-    selected_value = next(
-        (value for value in option_values if phone_number in value),
-        None,
-    )
+    phone_candidates = [
+        option for option in option_values
+        if phone_number in option["value"] or phone_number in option["text"]
+    ]
 
-    if not selected_value:
+    if not phone_candidates:
         raise RuntimeError(
             f"No se encontró la línea {phone_number} dentro del selector .selectLine."
         )
 
+    # Prioriza explícitamente la línea tipo Prepago/Tarjetero (flujo Sentinel).
+    preferred_tokens = [
+        '"AssociationRoleType":"Prepago/Tarjetero"',
+        "prepago/tarjetero",
+        '"IsHybrid":"FALSE"',
+        '"AssociatedAccountStatus":"Activo"',
+    ]
+    best_candidate = None
+    best_score = -1
+    for candidate in phone_candidates:
+        haystack = f"{candidate['value']} {candidate['text']}".lower()
+        score = sum(1 for token in preferred_tokens if token.lower() in haystack)
+        if score > best_score:
+            best_candidate = candidate
+            best_score = score
+
+    selected_value = best_candidate["value"] if best_candidate else phone_candidates[0]["value"]
+
     logger.debug("Línea seleccionada para %s: %s", phone_number, selected_value)
     await page.select_option(".selectLine", value=selected_value)
+
+    # Verifica que el value quedó aplicado realmente antes de avanzar.
+    selected_value_after = await page.locator(".selectLine").input_value()
+    if selected_value_after != selected_value:
+        raise RuntimeError(
+            "No se pudo confirmar la selección de la línea/tarjeta en .selectLine. "
+            f"Esperado: {selected_value}; obtenido: {selected_value_after}"
+        )
+
     await _safe_wait_networkidle(page)
 
 
@@ -223,18 +254,18 @@ async def _find_visible_in_frames(page: Page, selectors: list[str], timeout_ms: 
     Busca un selector visible en cualquier frame (incluyendo main frame).
     Devuelve (frame, selector) cuando encuentra coincidencia.
     """
-    elapsed = 0
-    step = 300
+    # Usar reloj real evita que el timeout se dispare por número de frames/selectores.
+    deadline = time.monotonic() + (timeout_ms / 1000)
 
-    while elapsed < timeout_ms:
+    while time.monotonic() < deadline:
         for frame in page.frames:
             for selector in selectors:
                 try:
-                    await frame.wait_for_selector(selector, state="visible", timeout=step)
-                    return frame, selector
+                    if await frame.locator(selector).first.is_visible(timeout=200):
+                        return frame, selector
                 except Exception:
                     continue
-        elapsed += step
+        await asyncio.sleep(0.15)
     return None
 
 
@@ -706,12 +737,42 @@ async def _select_saved_card_and_continue(page: Page, notify: Callable[[str], No
     card_screen_markers = [
         "text=Selecciona tu tarjeta",
         "text=Selecciona la tarjeta",
+        "text=Seleccionar tarjeta",
+        "text=Elige tu tarjeta",
+        "text=Choose your card",
+        "[role='combobox']",
+        "select",
     ]
 
     found = await _find_visible_in_frames(page, card_screen_markers, timeout_ms=9000)
     if not found:
-        logger.debug("Pantalla de selección de tarjeta no detectada; continuando.")
-        return
+        # Fallback: algunos flujos muestran solo el dropdown sin el texto exacto.
+        probable_card_dropdown = False
+        for frame in page.frames:
+            try:
+                probable_card_dropdown = bool(await frame.evaluate(
+                    """() => {
+                        const visible = (el) => {
+                            if (!el) return false;
+                            const st = window.getComputedStyle(el);
+                            return st.display !== 'none' && st.visibility !== 'hidden' && el.offsetParent !== null;
+                        };
+                        const nodes = Array.from(document.querySelectorAll('select, [role="combobox"], .ng-select, .select2, .dropdown, .mat-select'));
+                        return nodes.some(el => {
+                            if (!visible(el)) return false;
+                            const txt = ((el.textContent || '') + ' ' + (el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('placeholder') || '')).toLowerCase();
+                            return txt.includes('tarjeta') || txt.includes('card');
+                        });
+                    }"""
+                ))
+                if probable_card_dropdown:
+                    break
+            except Exception:
+                continue
+
+        if not probable_card_dropdown:
+            logger.debug("Pantalla de selección de tarjeta no detectada; continuando.")
+            return
 
     notify("Pantalla de tarjeta detectada; seleccionando tarjeta guardada...")
 
@@ -752,24 +813,62 @@ async def _select_saved_card_and_continue(page: Page, notify: Callable[[str], No
 
     # Intento 2: dropdown custom (placeholder + opciones en overlay/lista).
     if not selected:
-        dropdown_selectors = [
-            "button:has-text('Selecciona tu tarjeta')",
-            "label:has-text('Selecciona tu tarjeta')",
-            "div:has-text('Selecciona tu tarjeta')",
-            "[role='combobox']",
-            ".ng-select-container",
-            ".select2-selection",
-        ]
-        await _click_first_visible_in_frames(page, dropdown_selectors, timeout_ms=3000)
-        await asyncio.sleep(0.4)
+        for frame in page.frames:
+            try:
+                selected = bool(await frame.evaluate(
+                    """() => {
+                        const visible = (el) => {
+                            if (!el) return false;
+                            const st = window.getComputedStyle(el);
+                            return st.display !== 'none' && st.visibility !== 'hidden' && el.offsetParent !== null;
+                        };
+                        const norm = (v) => (v || '').toLowerCase().trim();
+                        const isPlaceholder = (txt) => {
+                            const t = norm(txt);
+                            return !t || t.includes('selecciona') || t.includes('elige') || t.includes('escoge') || t === '--' || t.includes('select');
+                        };
 
-        option_selectors = [
-            "[role='option']:not(:has-text('Selecciona'))",
-            ".ng-option:not(:has-text('Selecciona'))",
-            "li:not(:has-text('Selecciona'))",
-            "div[role='listbox'] div:not(:has-text('Selecciona'))",
-        ]
-        selected = await _click_first_visible_in_frames(page, option_selectors, timeout_ms=4000)
+                        const triggers = Array.from(document.querySelectorAll(
+                            "[role='combobox'], .ng-select-container, .select2-selection, .mat-select-trigger, button, div, span"
+                        )).filter(el => {
+                            if (!visible(el)) return false;
+                            const txt = norm(el.textContent) + ' ' + norm(el.getAttribute('aria-label')) + ' ' + norm(el.getAttribute('placeholder'));
+                            return txt.includes('tarjeta') || txt.includes('card') || txt.includes('selecciona');
+                        });
+
+                        if (triggers.length > 0) {
+                            triggers[0].click();
+                        }
+
+                        const optionSelectors = [
+                            "[role='option']",
+                            ".ng-option",
+                            ".select2-results__option",
+                            ".mat-option",
+                            "div[role='listbox'] div",
+                            "li",
+                            ".dropdown-item",
+                        ];
+
+                        for (const sel of optionSelectors) {
+                            const options = Array.from(document.querySelectorAll(sel)).filter(visible);
+                            for (const opt of options) {
+                                const txt = norm(opt.textContent) + ' ' + norm(opt.getAttribute('aria-label'));
+                                const disabled = opt.hasAttribute('disabled') || opt.getAttribute('aria-disabled') === 'true' || opt.classList.contains('disabled');
+                                if (disabled || isPlaceholder(txt)) continue;
+                                opt.click();
+                                return true;
+                            }
+                        }
+
+                        return false;
+                    }"""
+                ))
+                if selected:
+                    logger.debug("Tarjeta seleccionada en dropdown custom en frame %s", frame.url)
+                    break
+            except Exception:
+                continue
 
     if not selected:
         logger.debug("No se logró seleccionar tarjeta automáticamente en esta vista.")
