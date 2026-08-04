@@ -481,32 +481,46 @@ async def _click_continue_fallback_in_frames(page: Page) -> bool:
     return False
 
 
+# page.close()/context.close()/browser.close() no aceptan "timeout" propio y
+# esperan indefinidamente la confirmación de Chromium. Si el navegador queda
+# no-responsivo (crash parcial, diálogo nativo bloqueante, etc.) esa espera
+# nunca retorna y el hilo de automatización jamás llega a notificar "done",
+# dejando la GUI colgada para siempre. Se acota cada cierre con wait_for.
+_CLOSE_TIMEOUT_SECONDS = 8.0
+
+
 async def _safe_close_page(page: Optional[Page]) -> None:
-    """Cierra la página ignorando errores de recursos ya cerrados."""
+    """Cierra la página ignorando errores de recursos ya cerrados o sin respuesta."""
     if not page:
         return
     try:
-        await page.close()
+        await asyncio.wait_for(page.close(), timeout=_CLOSE_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        logger.warning("page.close() no respondió en %.0fs; se continúa igualmente.", _CLOSE_TIMEOUT_SECONDS)
     except Exception:
         pass
 
 
 async def _safe_close_context(context: Optional[BrowserContext]) -> None:
-    """Cierra el contexto ignorando errores de recursos ya cerrados."""
+    """Cierra el contexto ignorando errores de recursos ya cerrados o sin respuesta."""
     if not context:
         return
     try:
-        await context.close()
+        await asyncio.wait_for(context.close(), timeout=_CLOSE_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        logger.warning("context.close() no respondió en %.0fs; se continúa igualmente.", _CLOSE_TIMEOUT_SECONDS)
     except Exception:
         pass
 
 
 async def _safe_close_browser(browser) -> None:
-    """Cierra el navegador ignorando errores de recursos ya cerrados."""
+    """Cierra el navegador ignorando errores de recursos ya cerrados o sin respuesta."""
     if not browser:
         return
     try:
-        await browser.close()
+        await asyncio.wait_for(browser.close(), timeout=_CLOSE_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        logger.warning("browser.close() no respondió en %.0fs; se continúa igualmente.", _CLOSE_TIMEOUT_SECONDS)
     except Exception:
         pass
 
@@ -1208,10 +1222,17 @@ async def run_automation(
                 slow_mo=slow_mo,
             )
 
-        # Viewport fijo igual al grabado con Sentinel
-        context: BrowserContext = await browser.new_context(
-            viewport={"width": 1696, "height": 784},
-        )
+        # Viewport fijo igual al grabado con Sentinel.
+        # Envuelto en try/except: si new_context() falla, el browser ya lanzado
+        # quedaría huérfano (proceso Chromium sin cerrar) al no llegar nunca al
+        # finally que lo cierra más abajo.
+        try:
+            context: BrowserContext = await browser.new_context(
+                viewport={"width": 1696, "height": 784},
+            )
+        except Exception:
+            await _safe_close_browser(browser)
+            raise
 
         page: Optional[Page] = None
         watchdog_task: Optional[asyncio.Task] = None
@@ -1492,8 +1513,8 @@ async def run_automation(
             if watchdog_task:
                 watchdog_task.cancel()
                 try:
-                    await watchdog_task
-                except (Exception, asyncio.CancelledError):
+                    await asyncio.wait_for(watchdog_task, timeout=_CLOSE_TIMEOUT_SECONDS * 3)
+                except (Exception, asyncio.CancelledError, asyncio.TimeoutError):
                     pass
 
             # Siempre cerrar el navegador, incluso si hubo error
