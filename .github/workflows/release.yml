@@ -98,12 +98,19 @@ jobs:
           echo "hash=$hash" >> $env:GITHUB_OUTPUT
 
       # 9. Crear tag de versión (si no existe ya)
+      # NOTA: "cmd || echo ..." no basta en PowerShell -- Write-Host/echo no
+      # limpian $LASTEXITCODE, así que el runner de GitHub Actions sigue viendo
+      # el código de salida de "git tag"/"git push" y marca el step como fallido
+      # aunque el fallback haya impreso el mensaje. Se resetea explícitamente.
       - name: Crear tag v${{ steps.version.outputs.ver }}
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "v${{ steps.version.outputs.ver }}" -m "Release v${{ steps.version.outputs.ver }}" || echo "Tag ya existe"
-          git push origin "v${{ steps.version.outputs.ver }}" || echo "Tag ya publicado"
+          git tag -a "v${{ steps.version.outputs.ver }}" -m "Release v${{ steps.version.outputs.ver }}"
+          if ($LASTEXITCODE -ne 0) { Write-Host "Tag ya existe" }
+          git push origin "v${{ steps.version.outputs.ver }}"
+          if ($LASTEXITCODE -ne 0) { Write-Host "Tag ya publicado" }
+          exit 0
 
       # 10. Crear el GitHub Release y adjuntar el .exe + su hash SHA-256
       - name: Crear GitHub Release
