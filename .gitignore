@@ -22,10 +22,14 @@ dist/
 # Configuración local del usuario (puede contener credenciales)
 config.json
 
-# Log generado en tiempo de ejecución
+# Log generado en tiempo de ejecución (incluye backups rotados: log.txt.1, log.txt.2...)
 log.txt
+log.txt.*
 debug.log
 comprasclaro.txt
+
+# Chromium local descargado por Playwright (~200 MB, se re-descarga automáticamente)
+playwright-browsers/
 
 # IDEs
 .vscode/

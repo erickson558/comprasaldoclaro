@@ -88,7 +88,16 @@ jobs:
             exit 1
           }
 
-      # 8. Crear tag de versión (si no existe ya)
+      # 8. Calcular SHA-256 del ejecutable para verificación de integridad
+      - name: Calcular SHA-256
+        id: sha
+        run: |
+          $hash = (Get-FileHash "ComprasClaroGT.exe" -Algorithm SHA256).Hash
+          Set-Content -Path "ComprasClaroGT.exe.sha256" -Value "$hash  ComprasClaroGT.exe"
+          Write-Host "SHA-256: $hash"
+          echo "hash=$hash" >> $env:GITHUB_OUTPUT
+
+      # 9. Crear tag de versión (si no existe ya)
       - name: Crear tag v${{ steps.version.outputs.ver }}
         run: |
           git config user.name  "github-actions[bot]"
@@ -96,7 +105,7 @@ jobs:
           git tag -a "v${{ steps.version.outputs.ver }}" -m "Release v${{ steps.version.outputs.ver }}" || echo "Tag ya existe"
           git push origin "v${{ steps.version.outputs.ver }}" || echo "Tag ya publicado"
 
-      # 9. Crear el GitHub Release y adjuntar el .exe
+      # 10. Crear el GitHub Release y adjuntar el .exe + su hash SHA-256
       - name: Crear GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -114,6 +123,11 @@ jobs:
 
             > **Nota:** Al ser el primer uso, Windows puede mostrar una advertencia SmartScreen.
             > Haz clic en "Más información" → "Ejecutar de todas formas".
-          files: ComprasClaroGT.exe
+
+            ### Verificación de integridad
+            SHA-256: `${{ steps.sha.outputs.hash }}`
+          files: |
+            ComprasClaroGT.exe
+            ComprasClaroGT.exe.sha256
           draft: false
           prerelease: false
