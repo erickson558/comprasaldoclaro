@@ -337,7 +337,7 @@ class ClaroApp(ctk.CTk):
 
         # Número de teléfono
         row(get_text("label_phone", lang))
-        self._phone = ctk.CTkEntry(parent, placeholder_text="34884422", height=34)
+        self._phone = ctk.CTkEntry(parent, placeholder_text="12345678", height=34)
         self._phone.pack(fill="x", padx=12, pady=(0, 4))
         self._phone.bind("<FocusOut>", lambda _e: self._autosave())
 
@@ -616,7 +616,7 @@ class ClaroApp(ctk.CTk):
         # Credenciales
         self._email.insert(0,    c.get("email", ""))
         self._password.insert(0, c.get("password", ""))
-        self._phone.insert(0,    c.get("phone_number", "34884422"))
+        self._phone.insert(0,    c.get("phone_number", ""))
 
         # Modo de navegador
         self._headless_var.set("headless" if c.get("headless", True) else "visible")

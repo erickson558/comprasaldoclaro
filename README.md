@@ -2,7 +2,7 @@
 
 > Automatización de compra de paquetes en **Mi Claro Guatemala** con interfaz gráfica moderna.
 
-[![Version](https://img.shields.io/badge/version-0.7.4-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
+[![Version](https://img.shields.io/badge/version-0.7.5-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://python.org)
 [![Build](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml/badge.svg)](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml)
@@ -139,6 +139,9 @@ La versión debe coincidir en: `version.py` → GUI → README → git tag → G
 ---
 
 ## Changelog
+
+### V0.7.5 — 2026-08-04
+- **fix:** Se removió un número de teléfono real hardcodeado como valor por defecto (`phone_number`) en `automation.py`, `config_manager.py` y `gui.py` — quedó expuesto públicamente en el repositorio desde V0.0.2. Ahora el default es vacío (`""`), igual que `email`/`password`; el placeholder visual del campo usa un número de ejemplo genérico
 
 ### V0.7.4 — 2026-08-03
 - **fix:** `page.close()`/`context.close()`/`browser.close()` no tienen timeout propio y podían esperar indefinidamente si Chromium quedaba no-responsivo, dejando el hilo de automatización sin notificar nunca "done" y la GUI colgada para siempre — ahora cada cierre está acotado con `asyncio.wait_for` (8s)

@@ -28,7 +28,7 @@ DEFAULT_CONFIG: dict = {
     # Credenciales de acceso a Mi Claro
     "email": "",
     "password": "",               # Opcional; algunos flujos no lo requieren
-    "phone_number": "34884422",   # Número al que se comprará el paquete
+    "phone_number": "",           # Número al que se comprará el paquete
 
     # Comportamiento del navegador
     "headless": True,             # True = sin ventana, False = ventana visible

@@ -1160,7 +1160,7 @@ async def run_automation(
     # ── Extraer parámetros de config ───────────────────────────────────────
     email         = config.get("email", "")
     password      = config.get("password", "")
-    phone_number  = config.get("phone_number", "34884422")
+    phone_number  = config.get("phone_number", "")
     headless      = config.get("headless", True)
     try:
         slow_mo = int(config.get("slow_mo", 0))
