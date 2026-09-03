@@ -5,6 +5,7 @@
 ## Cuando usar esta skill
 
 - El usuario reporta "la automatizacion no termina", "se queda colgada", "no hace la compra"
+- El usuario reporta que el bot dice "compra completada" pero el navegador se quedo visualmente en el formulario de facturacion (falso exito — ver FIX V0.7.6)
 - Se va a compilar un release y se quiere confirmar que los patrones de confiabilidad conocidos siguen aplicados
 - Se agrego un paso nuevo al flujo de compra y se quiere verificar que sigue los mismos patrones que el resto del codigo
 - Antes de cerrar un reporte de bug sobre el navegador quedandose abierto o la GUI quedandose "pegada"
@@ -31,10 +32,11 @@
    - ¿`_stop_watchdog` cierra Chromium de inmediato al detectar `stop_event`, sin esperar el timeout del paso en curso? (FIX V0.3.1)
    - ¿`_install_local_chromium` evita `sys.executable -m playwright` cuando `sys.frozen`? (FIX V0.7.2 — evita bucle de reapertura del `.exe`)
    - ¿toda espera de Playwright nueva (`wait_for_selector`, `page.click`, `wait_for_function`) declara `timeout` explicito?
+   - ¿`_complete_billing_form` verifica con `_wait_disappear_in_frames` que los `billing_markers` desaparecieron tras el clic en "Continuar", lanzando `RuntimeError` si el formulario persiste? (FIX V0.7.6 — sin esto, una validacion rechazada por el sitio deja la pagina en el formulario de facturacion mientras el bot notifica exito falso)
 3. `gui.py`:
    - ¿`_automation_thread_worker` pone `("done", "")` en `msg_queue` SIEMPRE en su `finally`, sin importar el tipo de excepcion?
    - ¿`asyncio.CancelledError` se captura explicitamente (hereda de `BaseException`, no de `Exception`)? (FIX V0.6.1)
-4. `log.txt` (si existe) — buscar en las ultimas ~200 lineas: `TargetClosedError`, `Error inesperado`, `no respondió` (nuevos warnings V0.7.4), timestamps sin un "Navegador cerrado"/"Aplicación cerrada" posterior cercano (indicio de corrida que no termino limpiamente)
+4. `log.txt` (si existe) — buscar en las ultimas ~200 lineas: `TargetClosedError`, `Error inesperado`, `no respondió` (nuevos warnings V0.7.4), timestamps sin un "Navegador cerrado"/"Aplicación cerrada" posterior cercano (indicio de corrida que no termino limpiamente). Ademas, sospechar de falso exito (V0.7.6) si una corrida llega a `"✅ Proceso de compra completado exitosamente."` sin que aparezcan antes lineas de "Tarjeta seleccionada" NI "Paso CVV detectado" junto con "no detectada"/"no detectado" en los pasos de tarjeta/CVV — indica que el flujo salto esas pantallas condicionales porque nunca salio del formulario de facturacion.
 
 ### Formato del reporte
 
@@ -53,6 +55,7 @@
 | 5 | _stop_watchdog cierra de inmediato al detectar stop_event | ✅ / ❌ |
 | 6 | Instalación de Chromium evita relanzar el .exe en modo frozen | ✅ / ❌ |
 | 7 | gui.py siempre notifica "done" (incluye CancelledError) | ✅ / ❌ |
+| 8 | _complete_billing_form verifica avance real tras "Continuar" (V0.7.6) | ✅ / ❌ |
 
 ### Errores recientes en logs
 [Extracto de log.txt o "Sin log disponible"]

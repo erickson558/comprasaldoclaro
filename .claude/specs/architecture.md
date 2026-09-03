@@ -199,3 +199,26 @@ Se queria soporte multi-idioma sin la limitacion de `whatsappmessagesender` (que
 
 **Negativas:**
 - La reconstruccion de widgets en caliente es una fuente conocida de bugs sutiles (parpadeo, transparencia intermitente) si se agregan nuevos `OptionMenu`/widgets sin pasar por las guardas existentes — cualquier nuevo widget dependiente del idioma debe registrarse en el mismo patron de reconstruccion protegida.
+
+---
+
+## ADR-009 — Verificacion de Avance Real Tras Submits Obligatorios (V0.7.6)
+
+**Estado:** Aceptado (implementado en V0.7.6)
+
+### Contexto
+
+Reporte de usuario: el bot notificaba `"✅ Proceso de compra completado exitosamente."` pero la compra nunca se confirmaba — el navegador (`headless=false`) se quedaba visualmente en el formulario de facturacion. `log.txt` (corrida 2026-08-31 08:34-08:35) confirmo la causa raiz: `_complete_billing_form()` hacia clic en "Continuar" y asumia exito porque Playwright no lanzaba ninguna excepcion, pero el sitio habia rechazado el envio (validacion de NIT/direccion u otro motivo) y la pagina permanecia en la misma vista. Los pasos siguientes — `_select_payment_method`, `_select_saved_card_and_continue`, `_complete_cvv_step` — estan disenados deliberadamente para "continuar sin romper flujo" cuando no detectan su propia pantalla, porque esas pantallas SON condicionales en el sitio real (no todos los flujos de pago las muestran). Ese mismo diseno, aplicado a un fallo real del paso anterior (obligatorio, no condicional), encubria el error en cascada hasta el mensaje final de exito.
+
+### Decision
+
+Se distingue explicitamente entre pasos **condicionales** (tarjeta guardada, CVV — "continuar sin romper flujo" es correcto) y pasos **obligatorios** (envio del formulario de facturacion). Para estos ultimos se agrega verificacion de avance real: nuevo helper `_wait_disappear_in_frames(page, selectors, timeout_ms)` que confirma que los `billing_markers` ya no son visibles en ningun frame tras el clic en "Continuar" (timeout 10s). Si el formulario persiste, se lanza `RuntimeError` explicito — incluyendo el texto de un posible mensaje de error de validacion visible en el DOM (`.error`, `.form-error`, `.invalid-feedback`, `[class*="error"]`) cuando esta disponible — en vez de continuar silenciosamente hacia un falso exito.
+
+### Consecuencias
+
+**Positivas:**
+- Un fallo de validacion del sitio en el paso de facturacion ahora se reporta como error claro al usuario, con contexto, en vez de un falso "compra completada".
+- El patron es generico: cualquier submit futuro que sea obligatorio (no condicional) en el flujo debe verificar avance real de la misma forma antes de continuar.
+
+**Negativas:**
+- Si Mi Claro cambia el DOM de forma que `billing_markers` deje de coincidir con el formulario real (por ejemplo, el formulario nuevo no contiene ninguno de esos placeholders), el chequeo podria dar un falso positivo de "avanzo" inmediatamente. Este riesgo ya existia en la deteccion original del formulario y se acepta el mismo trade-off documentado para el resto de selectores basados en DOM del sitio (requieren actualizacion si el sitio cambia su marcado).

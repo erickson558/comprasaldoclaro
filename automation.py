@@ -404,6 +404,32 @@ async def _find_visible_in_frames(page: Page, selectors: list[str], timeout_ms: 
     return None
 
 
+async def _wait_disappear_in_frames(page: Page, selectors: list[str], timeout_ms: int = 8000) -> bool:
+    """
+    Espera a que NINGUNO de los selectores siga visible en ningún frame.
+    Devuelve True si desaparecieron dentro del timeout; False si alguno persiste.
+    Usado para confirmar que un submit realmente avanzó de pantalla, en vez de
+    asumir éxito solo porque el click no lanzó una excepción de Playwright.
+    """
+    deadline = time.monotonic() + (timeout_ms / 1000)
+    while time.monotonic() < deadline:
+        still_present = False
+        for frame in page.frames:
+            for selector in selectors:
+                try:
+                    if await frame.locator(selector).first.is_visible(timeout=200):
+                        still_present = True
+                        break
+                except Exception:
+                    continue
+            if still_present:
+                break
+        if not still_present:
+            return True
+        await _runtime_pause(0.15)
+    return False
+
+
 async def _fill_first_visible_in_frames(page: Page, selectors: list[str], value: str, timeout_ms: int = 8000) -> bool:
     """
     Rellena un input visible localizado en cualquier frame.
@@ -757,6 +783,27 @@ async def _complete_billing_form(page: Page, config: dict, notify: Callable[[str
         raise RuntimeError("No se encontró el botón 'Continuar' del formulario de facturación.")
 
     await _safe_wait_networkidle(page)
+
+    # Confirmar que el formulario realmente avanzó de pantalla. Si Mi Claro
+    # rechaza el envío (NIT/dirección inválidos, campo nuevo sin completar),
+    # el sitio se queda en la misma vista sin que Playwright lance ningún
+    # error, y los pasos siguientes (selección de tarjeta, CVV) están
+    # diseñados para "continuar sin romper flujo" si no detectan su pantalla.
+    # Sin esta verificación, el bot notificaría éxito aunque la compra nunca
+    # se confirmó — el formulario de facturación quedaría "atascado" en
+    # pantalla mientras la app se cierra creyendo que ya compró.
+    advanced = await _wait_disappear_in_frames(page, billing_markers, timeout_ms=10000)
+    if not advanced:
+        error_text = await _safe_page_evaluate(page, """() => {
+            const el = document.querySelector('.error, .form-error, .invalid-feedback, [class*="error"]');
+            return el ? el.textContent.trim().slice(0, 200) : '';
+        }""")
+        detail = f" Mensaje del sitio: '{error_text}'." if error_text else ""
+        raise RuntimeError(
+            "El formulario de facturación no avanzó tras enviar 'Continuar'; "
+            "posible validación fallida en el sitio (NIT/dirección) o cambio de DOM."
+            + detail
+        )
 
 
 async def _select_payment_method(page: Page, config: dict, notify: Callable[[str], None]) -> None:

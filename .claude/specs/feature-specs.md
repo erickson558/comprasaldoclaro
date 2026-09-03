@@ -41,7 +41,8 @@
 - La compra del paquete prioriza busqueda por `target_package_keyword` (texto visible, ej. "Q 10.00"); si no hay match, cae a compra por posicion (`target_package_slide`, selector `nth-child`).
 - El metodo de pago (`tarjeta`/`saldo`) se valida explicitamente antes del formulario de facturacion; si no se encuentra el selector, el flujo continua sin bloquear (algunos sitios no lo requieren).
 - El formulario de facturacion se completa via busqueda en pagina principal + iframes (nombre, NIT, direccion, correo), con `billing_autofill` como flag de activacion.
-- La seleccion de tarjeta guardada y el paso de CVV solo se ejecutan si el sitio los solicita (deteccion condicional por presencia de `div.select-container` / campo CVV).
+- **(V0.7.6)** Tras enviar el "Continuar" del formulario de facturacion, se verifica que los `billing_markers` realmente desaparecieron de todos los frames (`_wait_disappear_in_frames`, timeout 10s) antes de dar el paso por completado. Si el sitio rechaza el envio (NIT/direccion invalidos u otra validacion) la pagina se queda en la misma vista sin que Playwright lance ningun error — sin esta verificacion, los pasos condicionales siguientes (tarjeta, CVV) "continuan sin romper flujo" al no detectar su pantalla, y el bot terminaba notificando un exito falso. Ahora se lanza `RuntimeError` explicito (incluyendo el texto de error del sitio si esta visible) en vez de continuar.
+- La seleccion de tarjeta guardada y el paso de CVV solo se ejecutan si el sitio los solicita (deteccion condicional por presencia de `div.select-container` / campo CVV) — esta logica de "continuar sin bloquear" sigue siendo correcta para SUS pantallas condicionales; el fix de V0.7.6 solo endurece el paso anterior (submit de facturacion), que es obligatorio y no condicional.
 - Al completar, se notifica `"✅ Proceso de compra completado exitosamente."` y se cierra el navegador SIEMPRE en el `finally` (ver seccion 6).
 
 ### Notas de Implementacion

@@ -2,7 +2,7 @@
 
 > Automatización de compra de paquetes en **Mi Claro Guatemala** con interfaz gráfica moderna.
 
-[![Version](https://img.shields.io/badge/version-0.7.5-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
+[![Version](https://img.shields.io/badge/version-0.7.6-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://python.org)
 [![Build](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml/badge.svg)](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml)
@@ -139,6 +139,9 @@ La versión debe coincidir en: `version.py` → GUI → README → git tag → G
 ---
 
 ## Changelog
+
+### V0.7.6 — 2026-09-03
+- **fix:** La automatización podía notificar `"✅ Proceso de compra completado exitosamente."` sin haber confirmado realmente la compra. Si el sitio rechazaba el envío del formulario de facturación (validación fallida de NIT/dirección, o cambio de DOM), la página se quedaba en la misma vista, pero el flujo continuaba en cascada porque los pasos de selección de tarjeta y CVV están diseñados para "continuar sin romper flujo" si no detectan su pantalla condicional — encubriendo así el fallo real. Ahora `_complete_billing_form()` verifica que el formulario realmente desapareció tras el clic en "Continuar" (`_wait_disappear_in_frames`, nuevo helper) y lanza un error explícito en vez de un falso éxito, incluyendo el mensaje de validación del sitio cuando está disponible
 
 ### V0.7.5 — 2026-08-04
 - **fix:** Se removió un número de teléfono real hardcodeado como valor por defecto (`phone_number`) en `automation.py`, `config_manager.py` y `gui.py` — quedó expuesto públicamente en el repositorio desde V0.0.2. Ahora el default es vacío (`""`), igual que `email`/`password`; el placeholder visual del campo usa un número de ejemplo genérico
