@@ -689,6 +689,18 @@ async def _complete_billing_form(page: Page, config: dict, notify: Callable[[str
         "text=Dirección de facturación",
     ]
 
+    # Marcadores exclusivos de la vista de facturación, usados solo para
+    # confirmar que el formulario avanzó de pantalla tras el submit. Los
+    # selectores de input genéricos (placeholder 'correo'/'nombre') no sirven
+    # para esta comprobación de ausencia: un widget de chat u otro campo
+    # persistente en el sitio puede coincidir en cualquier pantalla, haciendo
+    # que _wait_disappear_in_frames nunca reporte éxito aunque el sitio ya
+    # haya avanzado a la selección de tarjeta.
+    billing_advance_markers = [
+        "text=Nombre en factura",
+        "text=Dirección de facturación",
+    ]
+
     # Esperar de forma robusta porque el formulario puede cargar tarde o en un frame.
     form_found = await _find_visible_in_frames(page, billing_markers, timeout_ms=18000)
     if not form_found:
@@ -792,7 +804,18 @@ async def _complete_billing_form(page: Page, config: dict, notify: Callable[[str
     # Sin esta verificación, el bot notificaría éxito aunque la compra nunca
     # se confirmó — el formulario de facturación quedaría "atascado" en
     # pantalla mientras la app se cierra creyendo que ya compró.
-    advanced = await _wait_disappear_in_frames(page, billing_markers, timeout_ms=10000)
+    advanced = await _wait_disappear_in_frames(page, billing_advance_markers, timeout_ms=10000)
+    if not advanced:
+        # Señal positiva de respaldo: si ya apareció la pantalla de selección
+        # de tarjeta, el formulario sí avanzó aunque los marcadores de arriba
+        # no hayan desaparecido a tiempo.
+        next_screen_markers = [
+            ".select-container",
+            "input#selectedCard",
+            "text=Selecciona tu tarjeta",
+        ]
+        next_screen = await _find_visible_in_frames(page, next_screen_markers, timeout_ms=2000)
+        advanced = bool(next_screen)
     if not advanced:
         error_text = await _safe_page_evaluate(page, """() => {
             const el = document.querySelector('.error, .form-error, .invalid-feedback, [class*="error"]');

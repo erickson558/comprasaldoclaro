@@ -2,7 +2,7 @@
 
 > Automatización de compra de paquetes en **Mi Claro Guatemala** con interfaz gráfica moderna.
 
-[![Version](https://img.shields.io/badge/version-0.7.6-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
+[![Version](https://img.shields.io/badge/version-0.7.7-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://python.org)
 [![Build](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml/badge.svg)](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml)
@@ -139,6 +139,9 @@ La versión debe coincidir en: `version.py` → GUI → README → git tag → G
 ---
 
 ## Changelog
+
+### V0.7.7 — 2026-09-04
+- **fix:** La verificación anti-falso-éxito introducida en V0.7.6 (`_wait_disappear_in_frames` sobre `billing_markers`) generaba un falso negativo: esperaba que desaparecieran selectores genéricos como `input[placeholder*='correo' i]`/`input[placeholder*='nombre' i]`, que pueden seguir coincidiendo con otro campo persistente del sitio en la pantalla siguiente. El resultado era el error opuesto al que V0.7.6 buscaba prevenir — un `RuntimeError` ("El formulario de facturación no avanzó...") aunque el sitio sí había avanzado correctamente a la selección de tarjeta, deteniendo la automatización antes de seleccionar tarjeta y hacer clic en "Continuar". Ahora la comprobación de avance usa únicamente marcadores de texto exclusivos de facturación (`Nombre en factura`, `Dirección de facturación`) y, como respaldo, una señal positiva de que ya apareció la pantalla de selección de tarjeta. Validado con una compra real end-to-end
 
 ### V0.7.6 — 2026-09-03
 - **fix:** La automatización podía notificar `"✅ Proceso de compra completado exitosamente."` sin haber confirmado realmente la compra. Si el sitio rechazaba el envío del formulario de facturación (validación fallida de NIT/dirección, o cambio de DOM), la página se quedaba en la misma vista, pero el flujo continuaba en cascada porque los pasos de selección de tarjeta y CVV están diseñados para "continuar sin romper flujo" si no detectan su pantalla condicional — encubriendo así el fallo real. Ahora `_complete_billing_form()` verifica que el formulario realmente desapareció tras el clic en "Continuar" (`_wait_disappear_in_frames`, nuevo helper) y lanza un error explícito en vez de un falso éxito, incluyendo el mensaje de validación del sitio cuando está disponible
