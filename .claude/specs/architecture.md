@@ -1,7 +1,7 @@
 # Architecture Decision Records — Compra Saldo Claro GT
 
 Proyecto: Compra Saldo Claro GT
-Version de referencia: V0.7.4
+Version de referencia: V0.7.8
 Responsable: erickson558
 Fecha: 2026-08-03
 
@@ -222,3 +222,7 @@ Se distingue explicitamente entre pasos **condicionales** (tarjeta guardada, CVV
 
 **Negativas:**
 - Si Mi Claro cambia el DOM de forma que `billing_markers` deje de coincidir con el formulario real (por ejemplo, el formulario nuevo no contiene ninguno de esos placeholders), el chequeo podria dar un falso positivo de "avanzo" inmediatamente. Este riesgo ya existia en la deteccion original del formulario y se acepta el mismo trade-off documentado para el resto de selectores basados en DOM del sitio (requieren actualizacion si el sitio cambia su marcado).
+
+### Enmienda V0.7.8 — Sondeo con salida temprana en vez de espera fija
+
+Reporte de usuario: en una PC mas lenta la verificacion de esta ADR fallaba con el mismo mensaje de "no avanzo" aunque el envio si habia sido aceptado por el sitio — la causa no era el DOM (ya resuelta en V0.7.7), sino que el sitio tardaba mas de los 10s fijos en procesar el envio y renderizar la pantalla de tarjeta en ese equipo. Subir el numero a ciegas (a 20s, 30s, etc.) solo pospone el mismo problema para un equipo aun mas lento. Se reemplazo la secuencia `_wait_disappear_in_frames(10s)` → si falla → `_find_visible_in_frames(2s)` por un unico helper, `_wait_screen_transition()`, que en cada vuelta del sondeo revisa ambas condiciones (formulario desaparecido O pantalla de tarjeta visible) y retorna apenas una se cumpla, con `timeout_ms=30000` como techo de seguridad — no como espera obligatoria. Este es el mismo patron que ya usan `_find_visible_in_frames`/`_wait_disappear_in_frames` (reloj real via `time.monotonic()`, sin bloquear mas alla de lo necesario); el error anterior fue encadenar dos esperas fijas en secuencia en vez de sondear ambas condiciones en paralelo dentro de un solo ciclo. **Patron a replicar:** cualquier verificacion nueva de "avance obligatorio de pantalla" debe sondear todas sus condiciones de exito en un mismo ciclo con un techo generoso, nunca como una cadena de esperas fijas independientes.

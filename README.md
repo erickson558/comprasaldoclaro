@@ -2,7 +2,7 @@
 
 > Automatización de compra de paquetes en **Mi Claro Guatemala** con interfaz gráfica moderna.
 
-[![Version](https://img.shields.io/badge/version-0.7.7-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
+[![Version](https://img.shields.io/badge/version-0.7.8-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://python.org)
 [![Build](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml/badge.svg)](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml)
@@ -139,6 +139,9 @@ La versión debe coincidir en: `version.py` → GUI → README → git tag → G
 ---
 
 ## Changelog
+
+### V0.7.8 — 2026-09-04
+- **fix:** En una PC/conexión más lenta, la verificación de avance del formulario de facturación (V0.7.6/V0.7.7) podía agotar su tiempo de espera antes de que el sitio terminara de procesar el envío y renderizar la siguiente pantalla, generando el mismo falso negativo que V0.7.7 corrigió por otra causa (`RuntimeError` de "no avanzó" con el envío en realidad exitoso, solo más lento). Se reemplazó la espera secuencial de duración fija (10s para confirmar desaparición del formulario + 2s de respaldo buscando la pantalla siguiente) por un nuevo helper `_wait_screen_transition()` que sondea el DOM en un solo ciclo y resuelve apenas detecta el cambio real de pantalla (desaparición del formulario O aparición de la selección de tarjeta, lo que ocurra primero), usando 30s solo como techo de seguridad ante un sitio genuinamente atascado — sin depender de adivinar cuántos segundos tardará cada equipo
 
 ### V0.7.7 — 2026-09-04
 - **fix:** La verificación anti-falso-éxito introducida en V0.7.6 (`_wait_disappear_in_frames` sobre `billing_markers`) generaba un falso negativo: esperaba que desaparecieran selectores genéricos como `input[placeholder*='correo' i]`/`input[placeholder*='nombre' i]`, que pueden seguir coincidiendo con otro campo persistente del sitio en la pantalla siguiente. El resultado era el error opuesto al que V0.7.6 buscaba prevenir — un `RuntimeError` ("El formulario de facturación no avanzó...") aunque el sitio sí había avanzado correctamente a la selección de tarjeta, deteniendo la automatización antes de seleccionar tarjeta y hacer clic en "Continuar". Ahora la comprobación de avance usa únicamente marcadores de texto exclusivos de facturación (`Nombre en factura`, `Dirección de facturación`) y, como respaldo, una señal positiva de que ya apareció la pantalla de selección de tarjeta. Validado con una compra real end-to-end

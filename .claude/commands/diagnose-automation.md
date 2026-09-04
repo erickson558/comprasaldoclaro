@@ -32,7 +32,8 @@
    - ¿`_stop_watchdog` cierra Chromium de inmediato al detectar `stop_event`, sin esperar el timeout del paso en curso? (FIX V0.3.1)
    - ¿`_install_local_chromium` evita `sys.executable -m playwright` cuando `sys.frozen`? (FIX V0.7.2 — evita bucle de reapertura del `.exe`)
    - ¿toda espera de Playwright nueva (`wait_for_selector`, `page.click`, `wait_for_function`) declara `timeout` explicito?
-   - ¿`_complete_billing_form` verifica con `_wait_disappear_in_frames` que los `billing_markers` desaparecieron tras el clic en "Continuar", lanzando `RuntimeError` si el formulario persiste? (FIX V0.7.6 — sin esto, una validacion rechazada por el sitio deja la pagina en el formulario de facturacion mientras el bot notifica exito falso)
+   - ¿`_complete_billing_form` verifica con `_wait_screen_transition` que el formulario desaparecio O que la pantalla de tarjeta ya aparecio tras el clic en "Continuar", lanzando `RuntimeError` si ninguna se cumple dentro del timeout? (FIX V0.7.6/V0.7.7/V0.7.8 — sin esto, una validacion rechazada por el sitio deja la pagina en el formulario de facturacion mientras el bot notifica exito falso)
+   - ¿esa verificacion sondea ambas condiciones en un mismo ciclo (sin encadenar dos esperas fijas independientes) y usa un timeout generoso (>=20s) como techo de seguridad, no como espera fija? (FIX V0.7.8 — un timeout corto o una espera fija encadenada produce falso negativo en PCs/conexiones mas lentas, abortando una compra que si habia avanzado)
 3. `gui.py`:
    - ¿`_automation_thread_worker` pone `("done", "")` en `msg_queue` SIEMPRE en su `finally`, sin importar el tipo de excepcion?
    - ¿`asyncio.CancelledError` se captura explicitamente (hereda de `BaseException`, no de `Exception`)? (FIX V0.6.1)
@@ -55,7 +56,8 @@
 | 5 | _stop_watchdog cierra de inmediato al detectar stop_event | ✅ / ❌ |
 | 6 | Instalación de Chromium evita relanzar el .exe en modo frozen | ✅ / ❌ |
 | 7 | gui.py siempre notifica "done" (incluye CancelledError) | ✅ / ❌ |
-| 8 | _complete_billing_form verifica avance real tras "Continuar" (V0.7.6) | ✅ / ❌ |
+| 8 | _complete_billing_form verifica avance real tras "Continuar" (V0.7.6/V0.7.7) | ✅ / ❌ |
+| 9 | Esa verificacion sondea todas sus condiciones en un mismo ciclo con techo generoso, sin esperas fijas encadenadas (V0.7.8) | ✅ / ❌ |
 
 ### Errores recientes en logs
 [Extracto de log.txt o "Sin log disponible"]

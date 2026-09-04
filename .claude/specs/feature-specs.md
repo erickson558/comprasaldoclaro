@@ -1,11 +1,11 @@
 # Especificacion de Diseno de Software (SDD)
-# Compra Saldo Claro GT — v0.7.4
+# Compra Saldo Claro GT — v0.7.8
 
 **Proyecto:** Automatizacion de compra de paquetes Mi Claro Guatemala
 **Autor:** Synyster Rick (GitHub: erickson558)
-**Fecha:** 2026-08-03
-**Version del documento:** 1.0
-**Version de la aplicacion:** 0.7.4
+**Fecha:** 2026-09-04
+**Version del documento:** 1.1
+**Version de la aplicacion:** 0.7.8
 
 ---
 
@@ -41,7 +41,9 @@
 - La compra del paquete prioriza busqueda por `target_package_keyword` (texto visible, ej. "Q 10.00"); si no hay match, cae a compra por posicion (`target_package_slide`, selector `nth-child`).
 - El metodo de pago (`tarjeta`/`saldo`) se valida explicitamente antes del formulario de facturacion; si no se encuentra el selector, el flujo continua sin bloquear (algunos sitios no lo requieren).
 - El formulario de facturacion se completa via busqueda en pagina principal + iframes (nombre, NIT, direccion, correo), con `billing_autofill` como flag de activacion.
-- **(V0.7.6)** Tras enviar el "Continuar" del formulario de facturacion, se verifica que los `billing_markers` realmente desaparecieron de todos los frames (`_wait_disappear_in_frames`, timeout 10s) antes de dar el paso por completado. Si el sitio rechaza el envio (NIT/direccion invalidos u otra validacion) la pagina se queda en la misma vista sin que Playwright lance ningun error — sin esta verificacion, los pasos condicionales siguientes (tarjeta, CVV) "continuan sin romper flujo" al no detectar su pantalla, y el bot terminaba notificando un exito falso. Ahora se lanza `RuntimeError` explicito (incluyendo el texto de error del sitio si esta visible) en vez de continuar.
+- **(V0.7.6)** Tras enviar el "Continuar" del formulario de facturacion, se verifica que el formulario realmente desaparecio antes de dar el paso por completado. Si el sitio rechaza el envio (NIT/direccion invalidos u otra validacion) la pagina se queda en la misma vista sin que Playwright lance ningun error — sin esta verificacion, los pasos condicionales siguientes (tarjeta, CVV) "continuan sin romper flujo" al no detectar su pantalla, y el bot terminaba notificando un exito falso. Ahora se lanza `RuntimeError` explicito (incluyendo el texto de error del sitio si esta visible) en vez de continuar.
+- **(V0.7.7)** Los marcadores usados en la verificacion anterior (`billing_markers`) se acotaron a texto exclusivo de la vista de facturacion (`Nombre en factura`, `Dirección de facturación`) — los selectores genericos originales (`input[placeholder*='correo' i]`, etc.) podian seguir coincidiendo con un campo persistente en la pantalla siguiente y producian el falso negativo opuesto (abortar una compra que si habia avanzado).
+- **(V0.7.8)** La comprobacion de avance se reescribio con `_wait_screen_transition(page, disappear_selectors, appear_selectors, timeout_ms)`: en vez de esperar primero un tiempo fijo (10s) a que desaparezca el formulario y luego, solo si eso falla, otro tiempo fijo (2s) buscando la pantalla de tarjeta, sondea ambas condiciones en un unico ciclo y retorna apenas cualquiera de las dos se cumple. Esto corrige un falso negativo observado en una PC mas lenta, donde el sitio tardaba mas de 10s en procesar el envio y renderizar la siguiente pantalla: el techo de seguridad subio a 30s, pero al ser un sondeo con salida temprana (no un `sleep` bloqueante) una corrida normal en un equipo rapido no se hace mas lenta — solo se le da mas margen a un equipo lento antes de declarar fallo.
 - La seleccion de tarjeta guardada y el paso de CVV solo se ejecutan si el sitio los solicita (deteccion condicional por presencia de `div.select-container` / campo CVV) — esta logica de "continuar sin bloquear" sigue siendo correcta para SUS pantallas condicionales; el fix de V0.7.6 solo endurece el paso anterior (submit de facturacion), que es obligatorio y no condicional.
 - Al completar, se notifica `"✅ Proceso de compra completado exitosamente."` y se cierra el navegador SIEMPRE en el `finally` (ver seccion 6).
 

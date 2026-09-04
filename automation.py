@@ -430,6 +430,50 @@ async def _wait_disappear_in_frames(page: Page, selectors: list[str], timeout_ms
     return False
 
 
+async def _wait_screen_transition(
+    page: Page,
+    disappear_selectors: list[str],
+    appear_selectors: list[str],
+    timeout_ms: int = 30000,
+) -> bool:
+    """
+    Confirma que la pantalla realmente cambió tras un submit, reaccionando en
+    cuanto el DOM cambie en vez de esperar un tiempo fijo: en cada vuelta del
+    sondeo revisa si `disappear_selectors` ya desaparecieron de todos los
+    frames O si algún `appear_selectors` ya es visible, lo que ocurra primero.
+    timeout_ms es solo el techo de seguridad para no colgar la app si el
+    sitio quedó realmente atascado — en un sitio lento pero funcionando esto
+    resuelve apenas el DOM cambie, sin depender de adivinar cuántos segundos
+    tardará esa PC en particular.
+    """
+    deadline = time.monotonic() + (timeout_ms / 1000)
+    while time.monotonic() < deadline:
+        still_present = False
+        for frame in page.frames:
+            for selector in disappear_selectors:
+                try:
+                    if await frame.locator(selector).first.is_visible(timeout=200):
+                        still_present = True
+                        break
+                except Exception:
+                    continue
+            if still_present:
+                break
+        if not still_present:
+            return True
+
+        for frame in page.frames:
+            for selector in appear_selectors:
+                try:
+                    if await frame.locator(selector).first.is_visible(timeout=200):
+                        return True
+                except Exception:
+                    continue
+
+        await _runtime_pause(0.2)
+    return False
+
+
 async def _fill_first_visible_in_frames(page: Page, selectors: list[str], value: str, timeout_ms: int = 8000) -> bool:
     """
     Rellena un input visible localizado en cualquier frame.
@@ -804,18 +848,19 @@ async def _complete_billing_form(page: Page, config: dict, notify: Callable[[str
     # Sin esta verificación, el bot notificaría éxito aunque la compra nunca
     # se confirmó — el formulario de facturación quedaría "atascado" en
     # pantalla mientras la app se cierra creyendo que ya compró.
-    advanced = await _wait_disappear_in_frames(page, billing_advance_markers, timeout_ms=10000)
-    if not advanced:
-        # Señal positiva de respaldo: si ya apareció la pantalla de selección
-        # de tarjeta, el formulario sí avanzó aunque los marcadores de arriba
-        # no hayan desaparecido a tiempo.
-        next_screen_markers = [
-            ".select-container",
-            "input#selectedCard",
-            "text=Selecciona tu tarjeta",
-        ]
-        next_screen = await _find_visible_in_frames(page, next_screen_markers, timeout_ms=2000)
-        advanced = bool(next_screen)
+    # En equipos/conexiones más lentas el sitio puede tardar más en procesar
+    # el envío y renderizar la siguiente pantalla. En vez de esperar un tiempo
+    # fijo (que en una PC aún más lenta volvería a quedar corto),
+    # _wait_screen_transition sondea el DOM y resuelve apenas cambie, usando
+    # 30s solo como techo de seguridad ante un sitio realmente atascado.
+    next_screen_markers = [
+        ".select-container",
+        "input#selectedCard",
+        "text=Selecciona tu tarjeta",
+    ]
+    advanced = await _wait_screen_transition(
+        page, billing_advance_markers, next_screen_markers, timeout_ms=30000
+    )
     if not advanced:
         error_text = await _safe_page_evaluate(page, """() => {
             const el = document.querySelector('.error, .form-error, .invalid-feedback, [class*="error"]');
