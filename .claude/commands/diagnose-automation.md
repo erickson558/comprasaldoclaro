@@ -35,6 +35,7 @@
    - ¿`_complete_billing_form` verifica con `_wait_screen_transition` que el formulario desaparecio O que la pantalla de tarjeta ya aparecio tras el clic en "Continuar", lanzando `RuntimeError` si ninguna se cumple dentro del timeout? (FIX V0.7.6/V0.7.7/V0.7.8 — sin esto, una validacion rechazada por el sitio deja la pagina en el formulario de facturacion mientras el bot notifica exito falso)
    - ¿esa verificacion sondea ambas condiciones en un mismo ciclo (sin encadenar dos esperas fijas independientes) y usa un timeout generoso (>=20s) como techo de seguridad, no como espera fija? (FIX V0.7.8 — un timeout corto o una espera fija encadenada produce falso negativo en PCs/conexiones mas lentas, abortando una compra que si habia avanzado)
    - ¿`_handle_random_survey` intenta un click JS con `frame.evaluate()` (no `page.evaluate()`) ANTES del click normal de Playwright, y oculta el iframe de Qualtrics como ultimo recurso si nada la cierra? (FIX V0.7.9 — sin el bypass JS, un backdrop de Qualtrics con z-index superior al boton "Cerrar" hace fallar el click normal en silencio y la encuesta queda bloqueando el resto del flujo)
+   - ¿justo antes del `finally` que cierra el navegador (tras notificar "Proceso de compra completado"), se espera con `_safe_wait_networkidle`/`_wait_for_loader` en vez de solo un `sleep` fijo? (FIX V0.7.10 — un sleep fijo no verifica nada y el navegador puede cerrarse a mitad de una redireccion/carga lenta tras confirmar la compra)
 3. `gui.py`:
    - ¿`_automation_thread_worker` pone `("done", "")` en `msg_queue` SIEMPRE en su `finally`, sin importar el tipo de excepcion?
    - ¿`asyncio.CancelledError` se captura explicitamente (hereda de `BaseException`, no de `Exception`)? (FIX V0.6.1)
@@ -60,6 +61,7 @@
 | 8 | _complete_billing_form verifica avance real tras "Continuar" (V0.7.6/V0.7.7) | ✅ / ❌ |
 | 9 | Esa verificacion sondea todas sus condiciones en un mismo ciclo con techo generoso, sin esperas fijas encadenadas (V0.7.8) | ✅ / ❌ |
 | 10 | _handle_random_survey usa frame.evaluate() (JS click bypass) antes del click normal, con hide del iframe como ultimo recurso (V0.7.9) | ✅ / ❌ |
+| 11 | Espera real (networkidle/loader) antes de cerrar el navegador al completar la compra, no solo un sleep fijo (V0.7.10) | ✅ / ❌ |
 
 ### Errores recientes en logs
 [Extracto de log.txt o "Sin log disponible"]

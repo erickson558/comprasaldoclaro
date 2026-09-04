@@ -2,7 +2,7 @@
 
 > Automatización de compra de paquetes en **Mi Claro Guatemala** con interfaz gráfica moderna.
 
-[![Version](https://img.shields.io/badge/version-0.7.9-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
+[![Version](https://img.shields.io/badge/version-0.7.10-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://python.org)
 [![Build](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml/badge.svg)](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml)
@@ -139,6 +139,9 @@ La versión debe coincidir en: `version.py` → GUI → README → git tag → G
 ---
 
 ## Changelog
+
+### V0.7.10 — 2026-09-04
+- **fix:** Al terminar la compra (tras el paso de CVV/confirmación), el bot esperaba un `sleep` fijo de 2 segundos "para que el estado final fuera visible" y cerraba el navegador de inmediato después, sin verificar si el sitio ya había terminado de cargar la pantalla final. Si el sitio redirigía o tardaba más de esos 2s en renderizar (reportado con una captura donde la pantalla quedó con el loader circular activo), el navegador se cerraba a mitad de esa carga. Aumentar `slow_mo` no habría resuelto esto — solo agrega un delay fijo entre cada acción de Playwright de principio a fin, sin esperar ninguna condición real de red/DOM. En vez de eso, antes de cerrar ahora se espera con los mismos helpers ya usados en el resto del flujo (`_safe_wait_networkidle` + `_wait_for_loader`, con techo de seguridad propio) a que la pantalla final realmente termine de cargar; la pausa fija se redujo a 1s y queda solo como margen visual adicional en modo no-headless, ya no como sustituto de la espera real
 
 ### V0.7.9 — 2026-09-04
 - **fix:** La encuesta aleatoria de Qualtrics podía quedar bloqueando el flujo cuando su botón "Cerrar" no respondía a un click normal de Playwright — Qualtrics dibuja su propio backdrop encima del diálogo y, si ese backdrop queda con z-index/pointer-events por encima del botón de cierre, Playwright detecta una intercepción de puntero y falla en silencio (mismo síntoma que el modal de renovación resuelto previamente con `_dismiss_modal`). `_handle_random_survey()` ahora intenta primero un `element.click()` vía JavaScript ejecutado dentro del propio frame de la encuesta (`frame.evaluate`, necesario porque Qualtrics es de otro origen y la página principal no puede alcanzar su DOM), que bypasea esa verificación igual que ya hace `_dismiss_modal`. Si ningún método de cierre funciona, como último recurso se oculta el iframe de la encuesta vía JS para que al menos deje de interceptar clics del resto del flujo

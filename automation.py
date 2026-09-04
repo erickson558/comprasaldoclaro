@@ -1649,8 +1649,19 @@ async def run_automation(
 
             notify("✅ Proceso de compra completado exitosamente.")
 
-            # Pausa para que el estado final sea visible si headless=False
-            await _runtime_pause(2)
+            # Esperar a que la pantalla final del sitio realmente termine de
+            # cargar (loader + red inactiva) antes de cerrar. Un sleep fijo no
+            # cubre una redirección/carga lenta tras confirmar la compra, y el
+            # navegador se cerraba a mitad de esa carga (ver _wait_for_loader,
+            # _safe_wait_networkidle — mismos helpers ya usados en el resto del
+            # flujo, con techo de seguridad propio; no bloquean más de lo
+            # necesario si la pantalla ya cargó).
+            await _safe_wait_networkidle(page)
+            await _wait_for_loader(page)
+
+            # Pausa breve adicional para que el estado final sea visible si
+            # headless=False — ya no sustituye la espera real de arriba.
+            await _runtime_pause(1)
 
         except RuntimeError as exc:
             # Error controlado: el usuario detuvo la automatización

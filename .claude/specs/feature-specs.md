@@ -1,11 +1,11 @@
 # Especificacion de Diseno de Software (SDD)
-# Compra Saldo Claro GT — v0.7.9
+# Compra Saldo Claro GT — v0.7.10
 
 **Proyecto:** Automatizacion de compra de paquetes Mi Claro Guatemala
 **Autor:** Synyster Rick (GitHub: erickson558)
 **Fecha:** 2026-09-04
-**Version del documento:** 1.2
-**Version de la aplicacion:** 0.7.9
+**Version del documento:** 1.3
+**Version de la aplicacion:** 0.7.10
 
 ---
 
@@ -46,6 +46,7 @@
 - **(V0.7.8)** La comprobacion de avance se reescribio con `_wait_screen_transition(page, disappear_selectors, appear_selectors, timeout_ms)`: en vez de esperar primero un tiempo fijo (10s) a que desaparezca el formulario y luego, solo si eso falla, otro tiempo fijo (2s) buscando la pantalla de tarjeta, sondea ambas condiciones en un unico ciclo y retorna apenas cualquiera de las dos se cumple. Esto corrige un falso negativo observado en una PC mas lenta, donde el sitio tardaba mas de 10s en procesar el envio y renderizar la siguiente pantalla: el techo de seguridad subio a 30s, pero al ser un sondeo con salida temprana (no un `sleep` bloqueante) una corrida normal en un equipo rapido no se hace mas lenta — solo se le da mas margen a un equipo lento antes de declarar fallo.
 - La seleccion de tarjeta guardada y el paso de CVV solo se ejecutan si el sitio los solicita (deteccion condicional por presencia de `div.select-container` / campo CVV) — esta logica de "continuar sin bloquear" sigue siendo correcta para SUS pantallas condicionales; el fix de V0.7.6 solo endurece el paso anterior (submit de facturacion), que es obligatorio y no condicional.
 - Al completar, se notifica `"✅ Proceso de compra completado exitosamente."` y se cierra el navegador SIEMPRE en el `finally` (ver seccion 6).
+- **(V0.7.10)** Antes de ese cierre, se espera con `_safe_wait_networkidle` + `_wait_for_loader` a que la pantalla final del sitio realmente termine de cargar (reemplaza un `sleep` fijo de 2s que no verificaba nada y dejaba el navegador cerrandose a mitad de una redireccion/carga lenta tras confirmar la compra). La pausa fija remanente (1s) es solo margen visual para modo no-headless, no la espera real.
 
 ### Notas de Implementacion
 

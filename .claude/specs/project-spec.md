@@ -1,7 +1,7 @@
 # Especificacion del Proyecto: Compra Saldo Claro GT
 
 > Documento vivo de Spec-Driven Development. Actualizar con cada cambio de version mayor o menor.
-> Version del documento alineada con: `version.py` — **v0.7.9**
+> Version del documento alineada con: `version.py` — **v0.7.10**
 
 ---
 
@@ -33,7 +33,7 @@ A diferencia de `whatsappmessagesender` (que se **conecta** via CDP a un navegad
 
 | Campo | Valor |
 |---|---|
-| Version | **v0.7.9** |
+| Version | **v0.7.10** |
 | Rama principal | `main` |
 | Plataforma soportada | Windows 10 / 11 (x64) |
 | Python requerido (dev) | 3.12 |
@@ -55,7 +55,7 @@ A diferencia de `whatsappmessagesender` (que se **conecta** via CDP a un navegad
 | `version.py` | Fuente unica de version (`VERSION = "x.x.x"`) |
 | `build.bat` | Compilacion local a `.exe` con PyInstaller |
 
-### Capacidades actuales (v0.7.9)
+### Capacidades actuales (v0.7.10)
 
 - Login con email/password configurables (password opcional segun flujo del sitio).
 - Seleccion de linea objetivo por numero de telefono (`.selectLine`).
