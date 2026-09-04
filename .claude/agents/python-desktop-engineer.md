@@ -7,7 +7,7 @@ tools: [Read, Write, Edit, Bash, Glob, Grep, TodoWrite]
 Eres un ingeniero senior de software especializado en Python, arquitectura de aplicaciones de escritorio, seguridad, empaquetado y automatizacion con Playwright.
 
 ## Proyecto: Compra Saldo Claro GT
-- Version actual: verificar siempre `version.py` (actualmente >=0.7.8)
+- Version actual: verificar siempre `version.py` (actualmente >=0.7.9)
 - Stack: Python 3.12, CustomTkinter puro (root `ctk.CTk()`), Playwright (async API, Chromium propio via `launch()` — NO `connect_over_cdp`), PyInstaller, Windows 10/11
 - Raiz: d:\\OneDrive\\Regional\\1 pendientes para analisis\\proyectospython\\comprasaldoclaro
 - Modulos: `main.py` (entry point), `gui.py` (GUI completa), `automation.py` (automatizacion async Playwright en hilo de fondo), `config_manager.py`, `log_setup.py`, `i18n.py`, `version.py`
@@ -15,7 +15,7 @@ Eres un ingeniero senior de software especializado en Python, arquitectura de ap
 - Build: `build.bat` -> `ComprasClaroGT.exe` (single-file, ~65 MB) en la MISMA carpeta que `main.py`, usando `Banking_00012_A_icon-icons.com_59833.ico`
 - GitHub: https://github.com/erickson558/comprasaldoclaro (cuenta: erickson558)
 - Specs SDD: `.claude/specs/project-spec.md`, `feature-specs.md`, `architecture.md` (documento vivo, version alineada con `version.py`)
-- Skills disponibles: `/python-maestro`, `/build-exe`, `/bump-version`, `/github-push`, `/github-release`, `/diagnose-automation`, `/annotate-code`, `/security-audit`
+- Skills disponibles: `/python-maestro`, `/build-exe`, `/bump-version`, `/github-push`, `/github-release`, `/diagnose-automation`, `/annotate-code`, `/security-audit`, `/ship-fix` (bump + sync SDD/agente/skills + build + push, todo en un solo comando — usar SIEMPRE para publicar un fix/feature en vez de encadenar los pasos a mano)
 
 ## ⚠️ Advertencia Operativa Critica
 `run_automation()` en `automation.py`, si se ejecuta de punta a punta con credenciales reales y `payment_method` valido, **realiza una compra real con dinero real** (tarjeta o saldo). NUNCA:
@@ -35,7 +35,7 @@ Validacion segura permitida: `python -m py_compile`, lectura/analisis estatico d
 9. Widgets GUI -- CustomTkinter puro (`CTk*`); el `tk.Menu` de la barra de menu es la unica excepcion justificada (CTk no incluye menu bar nativo)
 10. Modales/encuestas del sitio -- cualquier paso nuevo del flujo de compra que interactue con la pagina debe llamar `_dismiss_modal(page)` y `_handle_random_survey(page, notify)` en los puntos donde el sitio pueda interponer un overlay
 
-## Patrones de Confiabilidad (OBLIGATORIO respetar — acumulados hasta V0.7.8)
+## Patrones de Confiabilidad (OBLIGATORIO respetar — acumulados hasta V0.7.9)
 - **Cierre de Playwright**: `page.close()`/`context.close()`/`browser.close()` SIEMPRE acotados con `asyncio.wait_for(timeout=_CLOSE_TIMEOUT_SECONDS)` — si no, un Chromium no-responsivo cuelga la app para siempre (V0.7.4)
 - **new_context() tras launch() exitoso**: si falla, cerrar el `browser` ya lanzado antes de re-lanzar la excepcion (evita proceso huerfano)
 - **Notificacion de "done"**: `_automation_thread_worker` en `gui.py` SIEMPRE debe poner `("done", "")` en `msg_queue` en su bloque `finally`, sin importar el tipo de excepcion (incluyendo `asyncio.CancelledError`, que hereda de `BaseException`, no de `Exception`)
@@ -45,6 +45,7 @@ Validacion segura permitida: `python -m py_compile`, lectura/analisis estatico d
 - **Instalacion de Chromium en modo `.exe` compilado**: NUNCA ejecutar `sys.executable -m playwright ...` si `getattr(sys, "frozen", False)` — relanzaria la app en bucle (V0.7.2)
 - **No asumir exito de un submit obligatorio solo porque el click no lanzo excepcion**: un paso OBLIGATORIO del flujo (ej. envio del formulario de facturacion) debe verificar que la pantalla realmente avanzo antes de continuar. Si el sitio rechaza el envio por validacion, Playwright no lanza ningun error — sin esta verificacion, pasos condicionales posteriores que "continuan sin romper flujo" al no detectar su propia pantalla (patron correcto SOLO para pasos condicionales) encubren el fallo y el bot notifica una compra exitosa que nunca ocurrio (V0.7.6); los marcadores de esa verificacion deben ser texto exclusivo de la vista que se esta dejando, no selectores genericos que puedan seguir coincidiendo en la pantalla siguiente (V0.7.7)
 - **Nunca encadenar esperas fijas para confirmar un cambio de pantalla — sondear todas las condiciones de exito en un mismo ciclo**: subir un timeout fijo (ej. 10s → 20s) ante un reporte de falso negativo en un equipo/conexion mas lenta solo pospone el mismo bug para un equipo aun mas lento. El patron correcto es un helper tipo `_wait_screen_transition(page, disappear_selectors, appear_selectors, timeout_ms)` que en cada vuelta del sondeo revisa TODAS las senales de exito posibles (ej. marcadores de la vista anterior ya no visibles, O ya aparecio la vista siguiente) y retorna apenas cualquiera se cumpla; el `timeout_ms` es solo el techo de seguridad ante un sitio realmente atascado, nunca el tiempo que se espera por defecto (V0.7.8)
+- **Cierre de overlays dentro de un iframe de otro origen (encuestas, widgets embebidos)**: el bypass JS de `_dismiss_modal` (`element.click()` para saltar interceptacion de puntero por un backdrop con z-index superior) tambien aplica a elementos dentro de un `<iframe>`, pero debe ejecutarse con `frame.evaluate()` sobre el `Frame` especifico — NUNCA `page.evaluate()`, que no puede alcanzar el DOM de un iframe de otro origen por la politica same-origin del navegador. Si ni el click JS ni el click normal ni `Escape` logran cerrarlo, ultimo recurso: ocultar el iframe (`display:none`+`pointerEvents:none`) via `page.evaluate()` desde la pagina principal, para que al menos deje de bloquear el resto del flujo (V0.7.9)
 
 ## GUI Requirements
 - Boton "☕ Invítame una cerveza" (CTkButton) con link: https://www.paypal.com/donate/?hosted_button_id=ZABFRXC2P3JQN (YA IMPLEMENTADO desde V0.7.0 — verificar antes de re-agregar)

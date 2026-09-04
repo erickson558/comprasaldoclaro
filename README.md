@@ -2,7 +2,7 @@
 
 > Automatización de compra de paquetes en **Mi Claro Guatemala** con interfaz gráfica moderna.
 
-[![Version](https://img.shields.io/badge/version-0.7.8-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
+[![Version](https://img.shields.io/badge/version-0.7.9-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://python.org)
 [![Build](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml/badge.svg)](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml)
@@ -139,6 +139,9 @@ La versión debe coincidir en: `version.py` → GUI → README → git tag → G
 ---
 
 ## Changelog
+
+### V0.7.9 — 2026-09-04
+- **fix:** La encuesta aleatoria de Qualtrics podía quedar bloqueando el flujo cuando su botón "Cerrar" no respondía a un click normal de Playwright — Qualtrics dibuja su propio backdrop encima del diálogo y, si ese backdrop queda con z-index/pointer-events por encima del botón de cierre, Playwright detecta una intercepción de puntero y falla en silencio (mismo síntoma que el modal de renovación resuelto previamente con `_dismiss_modal`). `_handle_random_survey()` ahora intenta primero un `element.click()` vía JavaScript ejecutado dentro del propio frame de la encuesta (`frame.evaluate`, necesario porque Qualtrics es de otro origen y la página principal no puede alcanzar su DOM), que bypasea esa verificación igual que ya hace `_dismiss_modal`. Si ningún método de cierre funciona, como último recurso se oculta el iframe de la encuesta vía JS para que al menos deje de interceptar clics del resto del flujo
 
 ### V0.7.8 — 2026-09-04
 - **fix:** En una PC/conexión más lenta, la verificación de avance del formulario de facturación (V0.7.6/V0.7.7) podía agotar su tiempo de espera antes de que el sitio terminara de procesar el envío y renderizar la siguiente pantalla, generando el mismo falso negativo que V0.7.7 corrigió por otra causa (`RuntimeError` de "no avanzó" con el envío en realidad exitoso, solo más lento). Se reemplazó la espera secuencial de duración fija (10s para confirmar desaparición del formulario + 2s de respaldo buscando la pantalla siguiente) por un nuevo helper `_wait_screen_transition()` que sondea el DOM en un solo ciclo y resuelve apenas detecta el cambio real de pantalla (desaparición del formulario O aparición de la selección de tarjeta, lo que ocurra primero), usando 30s solo como techo de seguridad ante un sitio genuinamente atascado — sin depender de adivinar cuántos segundos tardará cada equipo

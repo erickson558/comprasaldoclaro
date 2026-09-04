@@ -659,6 +659,33 @@ async def _handle_random_survey(
         "text=✕",
     ]
 
+    # Prioridad 1: JS click ejecutado DENTRO del frame de la encuesta.
+    # Qualtrics renderiza su propio backdrop encima del diálogo; si ese
+    # backdrop queda con z-index/pointer-events por encima del botón "Cerrar",
+    # el .click() normal de Playwright lo detecta como intercepción de
+    # puntero y falla en silencio (mismo bug que _dismiss_modal con .blur).
+    # frame.evaluate() ejecuta JS en el contexto propio del frame (necesario
+    # porque la encuesta es de otro origen — qualtrics.com — y el padre no
+    # puede alcanzar su DOM), y element.click() vía JS bypasea esa verificación.
+    try:
+        clicked = await frame.evaluate(
+            """(selectors) => {
+                for (const sel of selectors) {
+                    const el = document.querySelector(sel);
+                    if (el) { el.click(); return true; }
+                }
+                return false;
+            }""",
+            close_selectors,
+        )
+    except Exception:
+        clicked = False
+
+    if clicked:
+        logger.debug("Encuesta cerrada con JS click dentro del frame.")
+        await _runtime_pause(0.3)
+        return
+
     closed = False
     for selector in close_selectors:
         try:
@@ -670,12 +697,31 @@ async def _handle_random_survey(
         except Exception:
             continue
 
-    if not closed:
-        try:
-            await page.keyboard.press("Escape")
-            logger.debug("Encuesta cerrada con Escape")
-        except Exception:
-            pass
+    if closed:
+        return
+
+    try:
+        await page.keyboard.press("Escape")
+        logger.debug("Encuesta cerrada con Escape")
+    except Exception:
+        pass
+
+    # Último recurso: si ningún click (JS o normal) ni Escape lograron
+    # cerrarla, ocultar el iframe de la encuesta vía JS en la página
+    # principal para que deje de interceptar clics del resto del flujo,
+    # aunque no se haya podido descartar "limpiamente" desde adentro.
+    await _safe_page_evaluate(page, """() => {
+        document.querySelectorAll('iframe[src*="qualtrics"]').forEach((el) => {
+            el.style.display = 'none';
+            el.style.pointerEvents = 'none';
+            const wrapper = el.closest('[class*="Modal"], [class*="modal"], [class*="overlay"], [class*="Overlay"]');
+            if (wrapper) {
+                wrapper.style.display = 'none';
+                wrapper.style.pointerEvents = 'none';
+            }
+        });
+    }""")
+    logger.debug("Encuesta oculta vía JavaScript como último recurso.")
 
 
 async def _buy_package_by_keyword(page: Page, keyword: str) -> bool:

@@ -1,7 +1,7 @@
 # Especificacion del Proyecto: Compra Saldo Claro GT
 
 > Documento vivo de Spec-Driven Development. Actualizar con cada cambio de version mayor o menor.
-> Version del documento alineada con: `version.py` — **v0.7.8**
+> Version del documento alineada con: `version.py` — **v0.7.9**
 
 ---
 
@@ -33,7 +33,7 @@ A diferencia de `whatsappmessagesender` (que se **conecta** via CDP a un navegad
 
 | Campo | Valor |
 |---|---|
-| Version | **v0.7.8** |
+| Version | **v0.7.9** |
 | Rama principal | `main` |
 | Plataforma soportada | Windows 10 / 11 (x64) |
 | Python requerido (dev) | 3.12 |
@@ -55,7 +55,7 @@ A diferencia de `whatsappmessagesender` (que se **conecta** via CDP a un navegad
 | `version.py` | Fuente unica de version (`VERSION = "x.x.x"`) |
 | `build.bat` | Compilacion local a `.exe` con PyInstaller |
 
-### Capacidades actuales (v0.7.8)
+### Capacidades actuales (v0.7.9)
 
 - Login con email/password configurables (password opcional segun flujo del sitio).
 - Seleccion de linea objetivo por numero de telefono (`.selectLine`).
@@ -69,6 +69,7 @@ A diferencia de `whatsappmessagesender` (que se **conecta** via CDP a un navegad
 - Pausa/reanudacion y detencion inmediata (watchdog dedicado que fuerza cierre de Chromium sin esperar timeouts largos).
 - **[V0.7.4]** Cierre de `page`/`context`/`browser` acotado con timeout (8s) — evita que la app quede colgada para siempre si Chromium no responde.
 - **[V0.7.6/V0.7.7/V0.7.8]** Verificacion de avance real tras el envio obligatorio del formulario de facturacion, evitando notificar una compra exitosa que nunca ocurrio; desde V0.7.8 se hace con un sondeo de salida temprana (`_wait_screen_transition`) en vez de esperas fijas, para no fallar en equipos/conexiones mas lentas.
+- **[V0.7.9]** Cierre robusto de la encuesta Qualtrics con bypass JS dentro de su propio frame (`frame.evaluate`) cuando su backdrop intercepta el click normal, con oculamiento forzado del iframe como ultimo recurso — evita que la encuesta bloquee el resto del flujo (ver ADR-010).
 - Idiomas: español, ingles, portugues — cambio en vivo sin reiniciar.
 - Tema oscuro/claro persistente.
 - Boton de donacion (PayPal) en barra de acciones y About.

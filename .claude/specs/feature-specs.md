@@ -1,11 +1,11 @@
 # Especificacion de Diseno de Software (SDD)
-# Compra Saldo Claro GT — v0.7.8
+# Compra Saldo Claro GT — v0.7.9
 
 **Proyecto:** Automatizacion de compra de paquetes Mi Claro Guatemala
 **Autor:** Synyster Rick (GitHub: erickson558)
 **Fecha:** 2026-09-04
-**Version del documento:** 1.1
-**Version de la aplicacion:** 0.7.8
+**Version del documento:** 1.2
+**Version de la aplicacion:** 0.7.9
 
 ---
 
@@ -90,12 +90,14 @@ Mi Claro muestra ocasionalmente una encuesta Qualtrics ("¿Recomendarias el port
 ### Criterios de Aceptacion
 
 - Se llama despues de cada paso significativo del flujo (login, seleccion de linea, navegacion de carrusel, formulario de facturacion, seleccion de tarjeta, CVV) — la encuesta puede aparecer en cualquier punto.
-- Cierra la encuesta con `img[alt='Cerrar']`; el timeout de deteccion es corto (`timeout_ms=2000` por defecto) para no penalizar el flujo cuando la encuesta no aparece.
+- Cierra la encuesta con `img[alt='Cerrar']` (o alternativas de la misma lista); el timeout de deteccion es corto (`timeout_ms=2000` por defecto) para no penalizar el flujo cuando la encuesta no aparece.
 - Busca en todos los frames de la pagina, no solo en el frame principal (`_find_visible_in_frames`).
+- **(V0.7.9)** El cierre prueba primero un `element.click()` via JavaScript ejecutado con `frame.evaluate()` dentro del frame de la encuesta — Qualtrics dibuja su propio backdrop encima del dialogo y, si ese backdrop queda con z-index/pointer-events por encima del boton "Cerrar", un `.click()` normal de Playwright detecta interceptacion de puntero y falla en silencio (mismo sintoma que el modal de renovacion, ver seccion 2). Se usa `frame.evaluate()` en vez de `page.evaluate()` porque la encuesta es de otro origen (`qualtrics.com`) y la pagina principal no puede alcanzar su DOM. Si ese click JS falla, se intenta el click normal por cada selector (comportamiento previo) y luego `Escape`; si nada de eso cierra la encuesta, como ultimo recurso se oculta el `iframe[src*="qualtrics"]` y su contenedor via JS para que deje de interceptar clics del resto del flujo aunque no se haya cerrado "limpiamente".
 
 ### Notas de Implementacion
 
 - Funciones: `_handle_random_survey(page, notify, timeout_ms)`, `_find_visible_in_frames(page, selectors, timeout_ms)`.
+- **Patron a replicar:** cualquier cierre de un elemento (modal, encuesta, dialogo) que viva dentro de un iframe debe intentar primero `frame.evaluate()` con `element.click()` antes que `locator.click()` normal, porque el backdrop del propio widget puede interceptar el puntero igual que en `_dismiss_modal` — la diferencia con un modal same-origin es unicamente que el bypass debe ejecutarse con `frame.evaluate()` (contexto del frame) en vez de `page.evaluate()` (contexto de la pagina principal, que no alcanza el DOM de un iframe de otro origen).
 
 ---
 

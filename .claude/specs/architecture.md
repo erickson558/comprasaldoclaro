@@ -1,7 +1,7 @@
 # Architecture Decision Records — Compra Saldo Claro GT
 
 Proyecto: Compra Saldo Claro GT
-Version de referencia: V0.7.8
+Version de referencia: V0.7.9
 Responsable: erickson558
 Fecha: 2026-08-03
 
@@ -226,3 +226,27 @@ Se distingue explicitamente entre pasos **condicionales** (tarjeta guardada, CVV
 ### Enmienda V0.7.8 — Sondeo con salida temprana en vez de espera fija
 
 Reporte de usuario: en una PC mas lenta la verificacion de esta ADR fallaba con el mismo mensaje de "no avanzo" aunque el envio si habia sido aceptado por el sitio — la causa no era el DOM (ya resuelta en V0.7.7), sino que el sitio tardaba mas de los 10s fijos en procesar el envio y renderizar la pantalla de tarjeta en ese equipo. Subir el numero a ciegas (a 20s, 30s, etc.) solo pospone el mismo problema para un equipo aun mas lento. Se reemplazo la secuencia `_wait_disappear_in_frames(10s)` → si falla → `_find_visible_in_frames(2s)` por un unico helper, `_wait_screen_transition()`, que en cada vuelta del sondeo revisa ambas condiciones (formulario desaparecido O pantalla de tarjeta visible) y retorna apenas una se cumpla, con `timeout_ms=30000` como techo de seguridad — no como espera obligatoria. Este es el mismo patron que ya usan `_find_visible_in_frames`/`_wait_disappear_in_frames` (reloj real via `time.monotonic()`, sin bloquear mas alla de lo necesario); el error anterior fue encadenar dos esperas fijas en secuencia en vez de sondear ambas condiciones en paralelo dentro de un solo ciclo. **Patron a replicar:** cualquier verificacion nueva de "avance obligatorio de pantalla" debe sondear todas sus condiciones de exito en un mismo ciclo con un techo generoso, nunca como una cadena de esperas fijas independientes.
+
+---
+
+## ADR-010 — JS Click Bypass Dentro del Frame para Overlays de Iframes de Otro Origen (V0.7.9)
+
+**Estado:** Aceptado (implementado en V0.7.9)
+
+### Contexto
+
+Captura de pantalla de usuario: la encuesta Qualtrics que aparece tras el login quedaba visible bloqueando la pagina, y `_handle_random_survey()` no lograba cerrarla — el mismo sintoma que motivo ADR (implicito) para `_dismiss_modal`: Qualtrics dibuja su propio backdrop encima del dialogo dentro de su iframe, y si ese backdrop queda con z-index/pointer-events por encima del boton "Cerrar", Playwright detecta que el click seria interceptado y falla en silencio, agotando la lista de `close_selectors` sin exito y cayendo a un `Escape` que Qualtrics no necesariamente atiende. La diferencia clave frente al modal de renovacion (mismo origen que la pagina principal) es que la encuesta vive en un iframe de `qualtrics.com` — otro origen — por lo que `page.evaluate()` con `document.querySelector` desde la pagina principal NO puede alcanzar su DOM (restriccion same-origin del propio navegador, no de Playwright).
+
+### Decision
+
+`_handle_random_survey()` intenta primero un `element.click()` por JavaScript ejecutado con `frame.evaluate()` — no `page.evaluate()` — sobre el `Frame` especifico donde se encontro la encuesta. `frame.evaluate()` ejecuta el script en el contexto de ese frame via CDP, que si tiene acceso a su propio DOM sin importar el origen, bypaseando la misma verificacion de interceptacion de puntero que Playwright aplica a `locator.click()`. Si el click JS no encuentra ningun `close_selectors` coincidente, se conserva el comportamiento previo (click normal por selector, luego `Escape`) como respaldo, y se agrega un ultimo nivel: ocultar via JS el `iframe[src*="qualtrics"]` (y su contenedor) desde la pagina principal para que al menos deje de interceptar clics del resto del flujo si ningun metodo de cierre funciono.
+
+### Consecuencias
+
+**Positivas:**
+- La encuesta ya no puede bloquear el flujo silenciosamente: hay 4 niveles de fallback (JS click en frame → click normal → Escape → hide forzado) antes de rendirse.
+- El patron es generico: `frame.evaluate()` en vez de `page.evaluate()` es la forma correcta de aplicar el bypass de `_dismiss_modal` a CUALQUIER overlay que viva dentro de un iframe de otro origen (widgets de pago, encuestas, chats embebidos, etc.) — `page.evaluate()` solo sirve para elementos same-origin con la pagina principal.
+
+**Negativas:**
+- El nivel final (ocultar el iframe) enmascara la encuesta sin garantizar que Qualtrics registre el cierre "correctamente" del lado del servidor — aceptable porque el bot nunca contesta la encuesta de todas formas, solo la descarta.
+- Si Qualtrics cambia el markup de su backdrop o deja de usar un `<iframe>` (ej. lo integra inline en la pagina principal), el selector `iframe[src*="qualtrics"]` del nivel final dejaria de aplicar y requeriria actualizacion.
