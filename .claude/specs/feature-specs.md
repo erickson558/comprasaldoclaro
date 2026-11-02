@@ -1,11 +1,11 @@
 # Especificacion de Diseno de Software (SDD)
-# Compra Saldo Claro GT — v0.7.10
+# Compra Saldo Claro GT — v0.7.11
 
 **Proyecto:** Automatizacion de compra de paquetes Mi Claro Guatemala
 **Autor:** Synyster Rick (GitHub: erickson558)
-**Fecha:** 2026-09-04
+**Fecha:** 2026-11-02
 **Version del documento:** 1.3
-**Version de la aplicacion:** 0.7.10
+**Version de la aplicacion:** 0.7.11
 
 ---
 
@@ -45,6 +45,8 @@
 - **(V0.7.7)** Los marcadores usados en la verificacion anterior (`billing_markers`) se acotaron a texto exclusivo de la vista de facturacion (`Nombre en factura`, `Dirección de facturación`) — los selectores genericos originales (`input[placeholder*='correo' i]`, etc.) podian seguir coincidiendo con un campo persistente en la pantalla siguiente y producian el falso negativo opuesto (abortar una compra que si habia avanzado).
 - **(V0.7.8)** La comprobacion de avance se reescribio con `_wait_screen_transition(page, disappear_selectors, appear_selectors, timeout_ms)`: en vez de esperar primero un tiempo fijo (10s) a que desaparezca el formulario y luego, solo si eso falla, otro tiempo fijo (2s) buscando la pantalla de tarjeta, sondea ambas condiciones en un unico ciclo y retorna apenas cualquiera de las dos se cumple. Esto corrige un falso negativo observado en una PC mas lenta, donde el sitio tardaba mas de 10s en procesar el envio y renderizar la siguiente pantalla: el techo de seguridad subio a 30s, pero al ser un sondeo con salida temprana (no un `sleep` bloqueante) una corrida normal en un equipo rapido no se hace mas lenta — solo se le da mas margen a un equipo lento antes de declarar fallo.
 - La seleccion de tarjeta guardada y el paso de CVV solo se ejecutan si el sitio los solicita (deteccion condicional por presencia de `div.select-container` / campo CVV) — esta logica de "continuar sin bloquear" sigue siendo correcta para SUS pantallas condicionales; el fix de V0.7.6 solo endurece el paso anterior (submit de facturacion), que es obligatorio y no condicional.
+- **(V0.7.11)** El envio de "Continuar" en facturacion ahora usa `_submit_billing_with_retries` (hasta 3 intentos: 12s/12s/20s de espera por `_wait_screen_transition`). Causa raiz observada en logs de 2026-09-04, 2026-10-31 y 2026-11-01: el click se reportaba "ejecutado" pero el sitio no avanzaba, y con un solo intento el bot abortaba. Cada reintento desenfoca el campo activo (Tab, dispara validacion), descarta la encuesta y vuelve a clicar, y solo ocurre mientras los marcadores de facturacion sigan visibles (nunca repite un click sobre la pantalla de tarjeta/CVV). Selector primario del boton: `#mcw-go-next`. Si agota los intentos, el `RuntimeError` incluye diagnostico de TODOS los frames (estado del boton, mensajes de validacion, `input:invalid`) y se guarda `billing-fail-*.png` junto al ejecutable.
+- **(V0.7.11)** `_click_first_visible_in_frames`: el fallback JS ejecuta `locator.evaluate("el => el.click()")` y NO `document.querySelector(selector)` — los selectores de Playwright (`:has-text`, `text=`) no son CSS valido y lanzaban `SyntaxError` siempre. El click normal tiene `click_timeout_ms=8000` (antes 30s por defecto) para saltar pronto al fallback cuando un overlay intercepta el puntero.
 - Al completar, se notifica `"✅ Proceso de compra completado exitosamente."` y se cierra el navegador SIEMPRE en el `finally` (ver seccion 6).
 - **(V0.7.10)** Antes de ese cierre, se espera con `_safe_wait_networkidle` + `_wait_for_loader` a que la pantalla final del sitio realmente termine de cargar (reemplaza un `sleep` fijo de 2s que no verificaba nada y dejaba el navegador cerrandose a mitad de una redireccion/carga lenta tras confirmar la compra). La pausa fija remanente (1s) es solo margen visual para modo no-headless, no la espera real.
 

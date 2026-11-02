@@ -35,6 +35,9 @@
    - ¿`_complete_billing_form` verifica con `_wait_screen_transition` que el formulario desaparecio O que la pantalla de tarjeta ya aparecio tras el clic en "Continuar", lanzando `RuntimeError` si ninguna se cumple dentro del timeout? (FIX V0.7.6/V0.7.7/V0.7.8 — sin esto, una validacion rechazada por el sitio deja la pagina en el formulario de facturacion mientras el bot notifica exito falso)
    - ¿esa verificacion sondea ambas condiciones en un mismo ciclo (sin encadenar dos esperas fijas independientes) y usa un timeout generoso (>=20s) como techo de seguridad, no como espera fija? (FIX V0.7.8 — un timeout corto o una espera fija encadenada produce falso negativo en PCs/conexiones mas lentas, abortando una compra que si habia avanzado)
    - ¿`_handle_random_survey` intenta un click JS con `frame.evaluate()` (no `page.evaluate()`) ANTES del click normal de Playwright, y oculta el iframe de Qualtrics como ultimo recurso si nada la cierra? (FIX V0.7.9 — sin el bypass JS, un backdrop de Qualtrics con z-index superior al boton "Cerrar" hace fallar el click normal en silencio y la encuesta queda bloqueando el resto del flujo)
+   - ¿el envio de "Continuar" de facturacion pasa por `_submit_billing_with_retries` (hasta 3 intentos, solo mientras la pantalla de facturacion siga visible) y el error final incluye diagnostico de todos los frames + `billing-fail-*.png`? (FIX V0.7.11 — un solo click perdido abortaba la compra)
+   - ¿ningun fallback JS pasa un selector de Playwright (`:has-text`, `text=`) a `document.querySelector`? Debe usar `locator.evaluate(...)`. (FIX V0.7.11 — `SyntaxError` constante lo dejaba inoperante)
+   - ¿`_click_first_visible_in_frames` limita el click normal con `click_timeout_ms` en vez de esperar 30s? (FIX V0.7.11)
    - ¿justo antes del `finally` que cierra el navegador (tras notificar "Proceso de compra completado"), se espera con `_safe_wait_networkidle`/`_wait_for_loader` en vez de solo un `sleep` fijo? (FIX V0.7.10 — un sleep fijo no verifica nada y el navegador puede cerrarse a mitad de una redireccion/carga lenta tras confirmar la compra)
 3. `gui.py`:
    - ¿`_automation_thread_worker` pone `("done", "")` en `msg_queue` SIEMPRE en su `finally`, sin importar el tipo de excepcion?
@@ -62,6 +65,8 @@
 | 9 | Esa verificacion sondea todas sus condiciones en un mismo ciclo con techo generoso, sin esperas fijas encadenadas (V0.7.8) | ✅ / ❌ |
 | 10 | _handle_random_survey usa frame.evaluate() (JS click bypass) antes del click normal, con hide del iframe como ultimo recurso (V0.7.9) | ✅ / ❌ |
 | 11 | Espera real (networkidle/loader) antes de cerrar el navegador al completar la compra, no solo un sleep fijo (V0.7.10) | ✅ / ❌ |
+| 12 | Submit de facturacion con reintentos acotados + diagnostico multi-frame (V0.7.11) | ✅ / ❌ |
+| 13 | Fallback JS de click no usa selectores Playwright en querySelector (V0.7.11) | ✅ / ❌ |
 
 ### Errores recientes en logs
 [Extracto de log.txt o "Sin log disponible"]

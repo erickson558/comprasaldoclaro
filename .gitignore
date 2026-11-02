@@ -41,3 +41,6 @@ playwright-browsers/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Capturas de diagnóstico al fallar la facturación
+billing-fail-*.png

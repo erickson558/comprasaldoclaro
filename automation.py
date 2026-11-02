@@ -488,9 +488,17 @@ async def _fill_first_visible_in_frames(page: Page, selectors: list[str], value:
     return True
 
 
-async def _click_first_visible_in_frames(page: Page, selectors: list[str], timeout_ms: int = 8000) -> bool:
+async def _click_first_visible_in_frames(
+    page: Page,
+    selectors: list[str],
+    timeout_ms: int = 8000,
+    click_timeout_ms: int = 8000,
+) -> bool:
     """
     Hace click en el primer botón/elemento visible encontrado en cualquier frame.
+    click_timeout_ms acota el click normal de Playwright: si un overlay (p. ej.
+    la encuesta Qualtrics) intercepta el puntero, no se esperan los 30s por
+    defecto antes de pasar al fallback JS.
     """
     found = await _find_visible_in_frames(page, selectors, timeout_ms=timeout_ms)
     if not found:
@@ -498,26 +506,20 @@ async def _click_first_visible_in_frames(page: Page, selectors: list[str], timeo
 
     frame, selector = found
     try:
-        await frame.locator(selector).first.click()
+        await frame.locator(selector).first.click(timeout=click_timeout_ms)
         logger.debug("Click ejecutado en frame con selector %s", selector)
         return True
     except Exception as exc:
         logger.debug("Click normal falló en selector %s: %s", selector, exc)
 
     # Fallback: click vía JavaScript para casos con overlays/interceptación.
+    # Se ejecuta sobre el elemento ya resuelto por el locator de Playwright:
+    # document.querySelector() NO entiende selectores propios de Playwright
+    # (:has-text, text=...) y lanzaba SyntaxError en cada intento (V0.7.11).
     try:
-        clicked = await frame.evaluate(
-            """(sel) => {
-                const el = document.querySelector(sel);
-                if (!el) return false;
-                el.click();
-                return true;
-            }""",
-            selector,
-        )
-        if clicked:
-            logger.debug("Click JS ejecutado en frame con selector %s", selector)
-            return True
+        await frame.locator(selector).first.evaluate("el => el.click()", timeout=5000)
+        logger.debug("Click JS ejecutado en frame con selector %s", selector)
+        return True
     except Exception as exc:
         logger.debug("Click JS falló en selector %s: %s", selector, exc)
 
@@ -760,6 +762,89 @@ async def _buy_package_by_keyword(page: Page, keyword: str) -> bool:
     return False
 
 
+async def _collect_billing_diagnostics(page: Page) -> str:
+    """
+    Recolecta, de TODOS los frames, el estado del botón Continuar y cualquier
+    texto de validación visible, y guarda una captura junto al ejecutable.
+    Solo diagnóstico: nunca lanza excepciones.
+    """
+    parts: list[str] = []
+    for frame in page.frames:
+        try:
+            info = await frame.evaluate(
+                """() => {
+                    const btn = document.querySelector('#mcw-go-next');
+                    const errs = Array.from(document.querySelectorAll(
+                        '.error, .form-error, .invalid-feedback, [class*="error"], [class*="invalid"], [role="alert"]'
+                    )).map(e => (e.textContent || '').trim()).filter(Boolean).slice(0, 5);
+                    const bad = Array.from(document.querySelectorAll('input:invalid'))
+                        .map(i => i.name || i.id || i.placeholder || 'input').slice(0, 5);
+                    if (!btn && !errs.length && !bad.length) return null;
+                    return {
+                        btn: btn ? {disabled: btn.disabled, aria: btn.getAttribute('aria-disabled')} : null,
+                        errs, bad,
+                    };
+                }"""
+            )
+        except Exception:
+            continue
+        if info:
+            parts.append(f"[{frame.url[:80]}] {info}")
+    try:
+        shot = _get_app_base_dir() / f"billing-fail-{time.strftime('%Y%m%d-%H%M%S')}.png"
+        await page.screenshot(path=str(shot))
+        parts.append(f"captura={shot.name}")
+    except Exception:
+        pass
+    return " | ".join(parts)
+
+
+async def _submit_billing_with_retries(
+    page: Page,
+    notify: Callable[[str], None],
+    continue_selectors: list[str],
+    advance_markers: list[str],
+    next_screen_markers: list[str],
+) -> tuple[bool, str]:
+    """
+    Envía el 'Continuar' de facturación con reintentos acotados (V0.7.11).
+
+    Un solo click no es fiable: en varias corridas Playwright reportó el click
+    como ejecutado y el sitio no avanzó (el click se pierde mientras el sitio
+    aún valida NIT/campos, o por la encuesta). Solo se reintenta mientras la
+    pantalla de facturación siga visible, por lo que nunca se repite un click
+    sobre una pantalla posterior (tarjeta/CVV). Devuelve (avanzó, diagnóstico).
+    """
+    attempt_timeouts_ms = [12000, 12000, 20000]
+    diagnostics = ""
+    for attempt, wait_ms in enumerate(attempt_timeouts_ms, start=1):
+        # Desenfocar el campo activo dispara la validación (blur/change) del sitio.
+        try:
+            await page.keyboard.press("Tab")
+        except Exception:
+            pass
+        await _handle_random_survey(page, notify, timeout_ms=1500)
+
+        clicked = await _click_first_visible_in_frames(page, continue_selectors, timeout_ms=15000)
+        if not clicked:
+            clicked = await _click_continue_fallback_in_frames(page)
+        if not clicked:
+            raise RuntimeError("No se encontró el botón 'Continuar' del formulario de facturación.")
+
+        await _safe_wait_networkidle(page, timeout=5000)
+        if await _wait_screen_transition(page, advance_markers, next_screen_markers, timeout_ms=wait_ms):
+            if attempt > 1:
+                logger.info("Formulario de facturación avanzó en el intento %d.", attempt)
+            return True, ""
+
+        diagnostics = await _collect_billing_diagnostics(page)
+        logger.warning(
+            "Facturación no avanzó tras el intento %d/%d. %s",
+            attempt, len(attempt_timeouts_ms), diagnostics,
+        )
+    return False, diagnostics
+
+
 async def _complete_billing_form(page: Page, config: dict, notify: Callable[[str], None]) -> None:
     """
     Completa el formulario de facturación final si la compra redirige a esa vista.
@@ -863,6 +948,8 @@ async def _complete_billing_form(page: Page, config: dict, notify: Callable[[str
     await _handle_random_survey(page, notify, timeout_ms=8000)
 
     continue_selectors = [
+        "#mcw-go-next",
+        "button[data-testid='qa_mcwInvoice_goNextButton']",
         "button:has-text('Continuar')",
         "input[value='Continuar']",
         ".btn:has-text('Continuar')",
@@ -878,43 +965,27 @@ async def _complete_billing_form(page: Page, config: dict, notify: Callable[[str
         ".btn:has-text('Pagar')",
     ]
     notify("Enviando formulario de facturación...")
-    clicked_continue = await _click_first_visible_in_frames(page, continue_selectors, timeout_ms=15000)
-    if not clicked_continue:
-        clicked_continue = await _click_continue_fallback_in_frames(page)
-    if not clicked_continue:
-        raise RuntimeError("No se encontró el botón 'Continuar' del formulario de facturación.")
-
-    await _safe_wait_networkidle(page)
-
     # Confirmar que el formulario realmente avanzó de pantalla. Si Mi Claro
     # rechaza el envío (NIT/dirección inválidos, campo nuevo sin completar),
     # el sitio se queda en la misma vista sin que Playwright lance ningún
     # error, y los pasos siguientes (selección de tarjeta, CVV) están
     # diseñados para "continuar sin romper flujo" si no detectan su pantalla.
-    # Sin esta verificación, el bot notificaría éxito aunque la compra nunca
-    # se confirmó — el formulario de facturación quedaría "atascado" en
-    # pantalla mientras la app se cierra creyendo que ya compró.
-    # En equipos/conexiones más lentas el sitio puede tardar más en procesar
-    # el envío y renderizar la siguiente pantalla. En vez de esperar un tiempo
-    # fijo (que en una PC aún más lenta volvería a quedar corto),
-    # _wait_screen_transition sondea el DOM y resuelve apenas cambie, usando
-    # 30s solo como techo de seguridad ante un sitio realmente atascado.
+    # Sin esta verificación el bot notificaría éxito aunque la compra nunca se
+    # confirmó. _submit_billing_with_retries reintenta el click (V0.7.11) porque
+    # un solo click puede perderse sin error, y _wait_screen_transition sondea
+    # el DOM resolviendo apenas cambie (sin sleeps fijos).
     next_screen_markers = [
         ".select-container",
         "input#selectedCard",
         "text=Selecciona tu tarjeta",
     ]
-    advanced = await _wait_screen_transition(
-        page, billing_advance_markers, next_screen_markers, timeout_ms=30000
+    advanced, diagnostics = await _submit_billing_with_retries(
+        page, notify, continue_selectors, billing_advance_markers, next_screen_markers
     )
     if not advanced:
-        error_text = await _safe_page_evaluate(page, """() => {
-            const el = document.querySelector('.error, .form-error, .invalid-feedback, [class*="error"]');
-            return el ? el.textContent.trim().slice(0, 200) : '';
-        }""")
-        detail = f" Mensaje del sitio: '{error_text}'." if error_text else ""
+        detail = f" Diagnóstico: {diagnostics}." if diagnostics else ""
         raise RuntimeError(
-            "El formulario de facturación no avanzó tras enviar 'Continuar'; "
+            "El formulario de facturación no avanzó tras enviar 'Continuar' (3 intentos); "
             "posible validación fallida en el sitio (NIT/dirección) o cambio de DOM."
             + detail
         )

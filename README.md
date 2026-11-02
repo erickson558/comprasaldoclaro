@@ -2,7 +2,7 @@
 
 > Automatización de compra de paquetes en **Mi Claro Guatemala** con interfaz gráfica moderna.
 
-[![Version](https://img.shields.io/badge/version-0.7.10-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
+[![Version](https://img.shields.io/badge/version-0.7.11-blue)](https://github.com/erickson558/comprasaldoclaro/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://python.org)
 [![Build](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml/badge.svg)](https://github.com/erickson558/comprasaldoclaro/actions/workflows/release.yml)
@@ -139,6 +139,11 @@ La versión debe coincidir en: `version.py` → GUI → README → git tag → G
 ---
 
 ## Changelog
+
+### V0.7.11 — 2026-11-02
+- **fix:** El "Continuar" del formulario de facturación fallaba con "no avanzó" (logs del 31-oct y 1-nov, y varias corridas del 4-sep): Playwright reportaba el click como ejecutado pero el sitio no avanzaba, y el bot hacía un solo intento. Ahora `_submit_billing_with_retries` reintenta hasta 3 veces (desenfoca el campo activo, descarta la encuesta y vuelve a clicar) mientras la pantalla de facturación siga visible; el botón se localiza primero por `#mcw-go-next`.
+- **fix:** El fallback "Click JS" de `_click_first_visible_in_frames` usaba `document.querySelector()` con selectores de Playwright (`:has-text`), lo que lanzaba `SyntaxError` en cada intento y lo dejaba inoperante. Ahora se ejecuta sobre el elemento ya resuelto (`locator.evaluate`), y el click normal tiene timeout acotado (8s en vez de 30s) para pasar rápido al fallback cuando un overlay intercepta el puntero.
+- **diagnóstico:** Si la facturación no avanza tras los reintentos, el error incluye el estado del botón, mensajes de validación de TODOS los frames y se guarda `billing-fail-*.png`.
 
 ### V0.7.10 — 2026-09-04
 - **fix:** Al terminar la compra (tras el paso de CVV/confirmación), el bot esperaba un `sleep` fijo de 2 segundos "para que el estado final fuera visible" y cerraba el navegador de inmediato después, sin verificar si el sitio ya había terminado de cargar la pantalla final. Si el sitio redirigía o tardaba más de esos 2s en renderizar (reportado con una captura donde la pantalla quedó con el loader circular activo), el navegador se cerraba a mitad de esa carga. Aumentar `slow_mo` no habría resuelto esto — solo agrega un delay fijo entre cada acción de Playwright de principio a fin, sin esperar ninguna condición real de red/DOM. En vez de eso, antes de cerrar ahora se espera con los mismos helpers ya usados en el resto del flujo (`_safe_wait_networkidle` + `_wait_for_loader`, con techo de seguridad propio) a que la pantalla final realmente termine de cargar; la pausa fija se redujo a 1s y queda solo como margen visual adicional en modo no-headless, ya no como sustituto de la espera real

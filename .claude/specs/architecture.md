@@ -1,7 +1,7 @@
 # Architecture Decision Records — Compra Saldo Claro GT
 
 Proyecto: Compra Saldo Claro GT
-Version de referencia: V0.7.10
+Version de referencia: V0.7.11
 Responsable: erickson558
 Fecha: 2026-08-03
 
